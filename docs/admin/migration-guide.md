@@ -48,6 +48,66 @@ this value as their `credentialStatus.statusListCredential` endpoint — set it 
 for cluster-internal verification). A bare hostname produces broken status URLs in every
 issued credential.
 
+## EDC 0.18.0 → 1.0.0-RC1
+
+This upgrade targets the official [IdentityHub v1.0.0-RC1 release](https://github.com/eclipse-edc/IdentityHub/tree/v1.0.0-RC1)
+and matching Eclipse EDC artifacts. Tractus-X application and chart versions remain independent.
+
+### API clients and DID service endpoints
+
+Identity, Issuer Admin and DCP Issuer API paths change from `/v1beta` to `/v1`.
+Update external clients, reverse-proxy rules and issuer DID service endpoints as well as
+the runtime. Existing persisted issuer DID documents are not rewritten automatically:
+update their issuance service endpoint through the DID management API and republish them.
+Presentation and STS retain their existing `/v1` paths. Kubernetes `v1beta1` API versions
+are unrelated to this change.
+
+Also verify that persisted public DID documents declare the verification relationships
+used by DCP: `authentication` and `capabilityInvocation` must reference the appropriate
+existing verification methods. Update and republish documents that lack these references;
+retain their participant IDs, keys, credentials and unrelated service endpoints.
+
+The shipped UI, Bruno/Postman collections and generated OpenAPI specifications use the
+new routes. Participant IDs remain plain IDs encoded once as URL path segments; API key
+format and stored management scopes are unchanged. Keep the existing participant and
+credential ownership extensions enabled. No broader scopes are required for the upgrade.
+
+### DCP credential ID scopes
+
+Both IdentityHub runtimes now accept `org.eclipse.dspace.dcp.vc.id:<credentialId>`,
+matching the upstream RC1 scope format. Everything after the alias separator is the
+credential ID, including colons in URNs or URLs; do not append `:read`. The query
+matches the credential's ID exactly, within the participant and authorized scopes.
+Blank IDs are rejected.
+
+Use the normalized credential ID returned by the management API. For JWT credentials,
+EDC prefers the JWT `jti` claim over the nested `vc.id`; those two values can differ in
+existing credentials.
+
+The existing type scopes and `tx.identityhub.scope.aliases` configuration remain
+supported. That setting controls type aliases; the standard DCP ID alias is always
+available.
+
+### PostgreSQL migration and rollback
+
+Stop writers and back up PostgreSQL together with the corresponding Vault state before
+starting the RC1 SQL runtimes. Retain the old runtime image and configuration with this
+backup, and rehearse restoration on an isolated copy.
+
+The new `credentialdefinitions/V0_0_3__Allow_Shared_Credential_Types.sql` migration drops
+the `credential_definitions_credential_type_key` constraint created by `V0_0_1`. Multiple
+definitions may now share a credential type, including across participants. Definition IDs
+remain unique; stored definitions, credentials, keys, participant contexts and permissions
+are preserved. Previous migration files and their Flyway checksums remain unchanged.
+If an installation manually renamed this constraint, reconcile that schema customization
+before upgrading; do not edit a previously applied migration.
+
+Verify existing API keys, participants, DID documents, key references, credentials and
+issuance/presentation after migration, then restart and verify persistence again.
+RC1 can create duplicate credential types that the old schema disallowed. Rolling back
+therefore requires restoring the matching pre-upgrade database/Vault backup and old
+runtime/configuration, rather than merely selecting the old image.
+
 ## EDC 0.17.0 → 0.18.0
 
 This upgrade uses the official Eclipse IdentityHub and Connector `v0.18.0` releases.
@@ -542,4 +602,5 @@ This work is licensed under the [CC-BY-4.0](https://creativecommons.org/licenses
 * SPDX-License-Identifier: CC-BY-4.0
 * SPDX-FileCopyrightText: 2025 Contributors to the Eclipse Foundation
 * SPDX-FileCopyrightText: 2026 Technovative Solutions
+* SPDX-FileCopyrightText: 2026 VDBP
 * Source URL: <https://github.com/eclipse-tractusx/tractusx-identityhub/blob/main/docs/admin/migration-guide.md>

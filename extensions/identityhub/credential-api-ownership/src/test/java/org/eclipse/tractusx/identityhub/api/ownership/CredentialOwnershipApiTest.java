@@ -207,7 +207,7 @@ class CredentialOwnershipApiTest extends RestControllerTestBase {
     }
 
     private String baseUri() {
-        return "http://localhost:" + port + "/v1beta/participants";
+        return "http://localhost:" + port + "/v1/participants";
     }
 
     public static class TestFeature implements DynamicFeature {

@@ -43,6 +43,11 @@ val edcVersion = libs.versions.edc
 allprojects {
     apply(plugin = "org.eclipse.edc.edc-build")
 
+    configurations.configureEach {
+        // core-lib pulls in jnats' LTS provider, which duplicates the runtime's BouncyCastle classes.
+        exclude(group = "org.bouncycastle", module = "bcprov-lts8on")
+    }
+
     configure<org.eclipse.edc.plugins.edcbuild.extensions.BuildExtension> {
         pom {
             projectName.set(project.name)

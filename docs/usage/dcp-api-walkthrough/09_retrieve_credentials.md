@@ -15,7 +15,7 @@ hasn't produced a stored credential yet. Issuance is asynchronous — expect `RE
 ## Request
 
 ```bash
-curl -s "${IDH_IDENTITY}/v1beta/participants/${IDH_CONTEXT}/credentials/request/${IDH_REQUEST_ID}" \
+curl -s "${IDH_IDENTITY}/v1/participants/${IDH_CONTEXT}/credentials/request/${IDH_REQUEST_ID}" \
   -H "x-api-key: ${IDH_API_KEY}" | jq .
 ```
 
@@ -45,7 +45,7 @@ Query the IdentityHub to check if the credential was delivered successfully. The
 ## Request
 
 ```bash
-curl -s "${IDH_IDENTITY}/v1beta/participants/${IDH_CONTEXT}/credentials" \
+curl -s "${IDH_IDENTITY}/v1/participants/${IDH_CONTEXT}/credentials" \
   -H "x-api-key: ${IDH_API_KEY}" | jq .
 ```
 

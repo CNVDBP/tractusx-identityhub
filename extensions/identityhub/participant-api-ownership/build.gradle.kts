@@ -24,13 +24,12 @@ plugins {
 
 dependencies {
     implementation(libs.edc.ih.api.participant)
-    implementation(libs.edc.spi.auth)
-    implementation(libs.edc.spi.web)
+    implementation(libs.edc.spi.core)
     implementation(libs.jakarta.rs)
 
     testImplementation(libs.edc.junit)
     testImplementation(libs.edc.ih.validators.participant)
     testImplementation(testFixtures(libs.edc.core.jersey))
-    testImplementation(libs.edc.lib.authorization)
+    testImplementation(libs.edc.lib.core)
     testImplementation(libs.rest.assured)
 }

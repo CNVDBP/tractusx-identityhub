@@ -43,11 +43,10 @@ dependencies {
     runtimeOnly(project(":extensions:api:swagger-ui"))
 
     // used for custom extensions
-    implementation(libs.edc.core.connector)
+    implementation(libs.edc.core.security)
     implementation(libs.edc.ih.spi)
 
-    testImplementation(libs.edc.lib.crypto)
-    testImplementation(libs.edc.lib.keys)
+    testImplementation(libs.edc.lib.core)
     testImplementation(libs.edc.junit)
 }
 

@@ -1,6 +1,6 @@
 # Identity management ownership extensions
 
-The Tractus-X runtimes assemble the official EDC/IdentityHub 0.18.0 artifacts
+The Tractus-X runtimes assemble the official EDC/IdentityHub 1.0.0-RC1 artifacts
 together with two local extensions. Both are built from this repository and
 registered through the normal EDC service lifecycle. No replacement upstream
 classes, dependency substitution, external patch JAR or classpath ordering is
@@ -37,7 +37,7 @@ This change adds no database migration and does not change STS, Presentation,
 DID documents, DCP, credential signatures or CP/DP code.
 
 These providers are deliberately bound to the exact resource classes and methods
-of EDC 0.18.0. When upgrading EDC again, review those bindings and rerun the HTTP
+of EDC 1.0.0-RC1. When upgrading EDC again, review those bindings and rerun the HTTP
 regressions against each runtime assembly. Remove an extension only when the
 standard assembled runtime preserves the same ownership guarantees.
 Literal-percent URI handling and health endpoint startup behavior are separate
@@ -58,7 +58,17 @@ result and unaffected routes.
 
 ## Source contracts
 
-- [EDC 0.18 WebService resource registration](https://github.com/eclipse-edc/Connector/blob/911a22ba6b90688ffeb35bb92bf5cc040ffdf37f/spi/common/web-spi/src/main/java/org/eclipse/edc/web/spi/WebService.java)
-- [EDC 0.18 scope filter priority](https://github.com/eclipse-edc/Connector/blob/911a22ba6b90688ffeb35bb92bf5cc040ffdf37f/extensions/common/auth/auth-authorization-oauth2-lib/src/main/java/org/eclipse/edc/api/authorization/filter/ScopeBasedAccessFilter.java)
+- [EDC RC1 WebService resource registration](https://github.com/eclipse-edc/Connector/blob/v1.0.0-RC1/spi/core-spi/src/main/java/org/eclipse/edc/web/spi/WebService.java)
+- [EDC RC1 scope filter priority](https://github.com/eclipse-edc/Connector/blob/v1.0.0-RC1/core/common/lib/core-lib/src/main/java/org/eclipse/edc/api/authorization/filter/ScopeBasedAccessFilter.java)
 - [Jakarta REST 4.0 method-bound providers](https://jakarta.ee/specifications/restful-ws/4.0/apidocs/jakarta.ws.rs/jakarta/ws/rs/container/dynamicfeature)
 - [Jakarta REST 4.0 entity reader interception](https://jakarta.ee/specifications/restful-ws/4.0/apidocs/jakarta.ws.rs/jakarta/ws/rs/ext/readerinterceptor)
+
+
+## NOTICE
+
+This work is licensed under the [CC-BY-4.0](https://creativecommons.org/licenses/by/4.0/legalcode).
+
+* SPDX-License-Identifier: CC-BY-4.0
+* SPDX-FileCopyrightText: 2026 Contributors to the Eclipse Foundation
+* SPDX-FileCopyrightText: 2026 VDBP
+* Source URL: <https://github.com/eclipse-tractusx/tractusx-identityhub/blob/main/extensions/identityhub/README.md>
