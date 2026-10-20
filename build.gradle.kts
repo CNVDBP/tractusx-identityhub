@@ -65,13 +65,13 @@ subprojects {
             file("${project.projectDir}/Dockerfile").exists()
         ) {
 
+            val openTelemetry = configurations.create("open-telemetry")
+
+            dependencies {
+                openTelemetry(libs.opentelemetry.javaagent)
+            }
+
             val downloadOpentelemetryAgent = tasks.register("downloadOpentelemetryAgent", Copy::class) {
-                val openTelemetry = configurations.create("open-telemetry")
-
-                dependencies {
-                    openTelemetry(libs.opentelemetry.javaagent)
-                }
-
                 from(openTelemetry)
                 into("build/resources/otel")
                 rename { "opentelemetry-javaagent.jar" }
