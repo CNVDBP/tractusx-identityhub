@@ -36,6 +36,8 @@ Only `common-lib`, `common-core`, `identity-hub-core`, `dcp-issuer-core` and
 `.gradle/identityhub-token-patch-repository`. Original RC5 artifacts and the
 user's Maven local repository are not overwritten. The five modules are selected
 together; do not mix the relaxed precheck with the original key resolver.
+Their bytecode and published JVM requirement remain Java 17, matching RC5,
+even when the build runs on a newer JDK.
 
 The existing CI setup builds the same pinned source patch. Its affected unit,
 signature, Storage API and Checkstyle tests run in the existing verification

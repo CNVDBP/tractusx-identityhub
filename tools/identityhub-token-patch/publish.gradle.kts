@@ -16,11 +16,20 @@
  */
 
 import org.gradle.api.publish.PublishingExtension
+import org.gradle.api.plugins.JavaPluginExtension
+import org.gradle.api.tasks.compile.JavaCompile
 import org.gradle.plugins.signing.Sign
 
 val patchedModules = setOf("common-lib", "common-core", "identity-hub-core", "dcp-issuer-core", "dcp-identityhub-core")
 
 gradle.beforeProject {
+    plugins.withId("java") {
+        extensions.configure<JavaPluginExtension> {
+            sourceCompatibility = JavaVersion.VERSION_17
+            targetCompatibility = JavaVersion.VERSION_17
+        }
+        tasks.withType<JavaCompile>().configureEach { options.release.set(17) }
+    }
     if (name in patchedModules) {
         version = System.getProperty("cx.patch.version") ?: error("cx.patch.version is required")
         configurations.configureEach {
