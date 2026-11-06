@@ -40,6 +40,21 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class TxScopeToCriterionTransformerTest {
 
+    @ParameterizedTest
+    @ValueSource(strings = {"MembershipCredential", "DataExchangeGovernanceCredential", "BpnCredential"})
+    void transform_acceptsDcpAndCxTypeScopes(String credentialType) {
+        var transformer = new TxScopeToCriterionTransformer();
+        var expected = List.of(new Criterion(TxScopeToCriterionTransformer.TYPE_OPERAND, "contains", credentialType));
+
+        var dcpResult = transformer.transformScope("org.eclipse.dspace.dcp.vc.type:" + credentialType);
+        var cxResult = transformer.transformScope("org.eclipse.tractusx.vc.type:" + credentialType + ":read");
+
+        assertTrue(dcpResult.succeeded());
+        assertTrue(cxResult.succeeded());
+        assertEquals(expected, dcpResult.getContent());
+        assertEquals(expected, cxResult.getContent());
+    }
+
     @Test
     void transform_acceptsConfiguredAlias() {
         ScopeToCriterionTransformer transformer = new TxScopeToCriterionTransformer(Set.of("org.eclipse.tractusx.vc.type", "org.dataspacex.vc.type"));
@@ -107,7 +122,13 @@ class TxScopeToCriterionTransformerTest {
     @ValueSource(strings = {
             "org.eclipse.dspace.dcp.vc.id",
             "org.eclipse.dspace.dcp.vc.ids:credential-1",
-            "org.eclipse.dspace.dcp.vc.type:MembershipCredential:write"
+            "org.eclipse.dspace.dcp.vc.type:MembershipCredential:write",
+            "org.eclipse.dspace.dcp.vc.type:",
+            "org.eclipse.dspace.dcp.vc.type: :read",
+            "org.eclipse.dspace.dcp.vc.type:MembershipCredential:",
+            "org.eclipse.tractusx.vc.type:MembershipCredential",
+            "org.eclipse.tractusx.vc.type::read",
+            "org.eclipse.tractusx.vc.type:MembershipCredential:read:"
     })
     void transform_rejectsInvalidScope(String scope) {
         ScopeToCriterionTransformer transformer = new TxScopeToCriterionTransformer();
@@ -123,5 +144,12 @@ class TxScopeToCriterionTransformerTest {
 
         assertTrue(result.failed());
         assertTrue(result.getFailureDetail().contains(TxScopeToCriterionTransformer.DEFAULT_ALIAS_LITERAL));
+    }
+
+    @Test
+    void transform_rejectsUnconfiguredDcpTypeAlias() {
+        var transformer = new TxScopeToCriterionTransformer(Set.of(TxScopeToCriterionTransformer.DEFAULT_ALIAS_LITERAL));
+
+        assertTrue(transformer.transformScope("org.eclipse.dspace.dcp.vc.type:MembershipCredential").failed());
     }
 }

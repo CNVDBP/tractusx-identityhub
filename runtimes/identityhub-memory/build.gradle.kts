@@ -3,6 +3,7 @@
  *   Copyright (c) 2025 LKS Next
  *   Copyright (c) 2026 Technovative Solutions
  *   Copyright (c) 2025 Contributors to the Eclipse Foundation
+ *   Copyright (c) 2026 VDBP
  *
  *   See the NOTICE file(s) distributed with this work for additional
  *   information regarding copyright ownership.
@@ -35,6 +36,7 @@ dependencies {
     runtimeOnly(project(":extensions:monitor:colored-jdk-monitor"))
     runtimeOnly(project(":extensions:api:swagger-ui"))
     runtimeOnly(project(":extensions:identityhub:initial-participant"))
+    runtimeOnly(project(":extensions:identityhub:cx-did-document"))
 
     // used for custom extensions
     implementation(libs.edc.core.security)

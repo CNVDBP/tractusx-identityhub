@@ -100,14 +100,18 @@ public class TxScopeToCriterionTransformer implements ScopeToCriterionTransforme
     protected Result<String[]> tokenize(String scope) {
         if (scope == null) return failure("Scope was null");
 
-        var tokens = scope.split(SCOPE_SEPARATOR);
-        if (tokens.length != 3) {
+        var tokens = scope.split(SCOPE_SEPARATOR, -1);
+        var dcpTypeScope = tokens.length == 2 && DCP_ALIAS_LITERAL.equalsIgnoreCase(tokens[0]);
+        if (tokens.length != 3 && !dcpTypeScope) {
             return failure("Scope string has invalid format.");
         }
         if (allowedAliases.stream().noneMatch(alias -> alias.equalsIgnoreCase(tokens[0]))) {
             return failure("Scope alias MUST be one of %s but was %s".formatted(allowedAliasesDescription, tokens[0]));
         }
-        if (!allowedOperations.contains(tokens[2])) {
+        if (tokens[1].isBlank()) {
+            return failure("Credential type was blank");
+        }
+        if (!dcpTypeScope && !allowedOperations.contains(tokens[2])) {
             return failure("Invalid scope operation: " + tokens[2]);
         }
 
