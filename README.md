@@ -124,6 +124,9 @@ The IssuerService is responsible for the issuance of verifiable credentials to d
 
 ## Getting Started
 
+For this fork, first [build the pinned RC5 SI token patch](tools/identityhub-token-patch/README.md#build).
+It supplies the reviewed authentication fixes used by all four runtimes.
+
 This project provides Helm charts for deploying both IdentityHub and IssuerService components. Each component is available in two variants:
 
 ### IdentityHub
