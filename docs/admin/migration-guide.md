@@ -68,6 +68,36 @@ from RC1 must additionally follow the status-list and supersession guidance belo
   its controllers. The local ownership providers are removed after HTTP regression
   verification; their modules remain as tests. See the [ownership regressions](../../extensions/identityhub/README.md).
 
+### Public issuance routes
+
+The `IssuerService` endpoint in the published DID document and the reverse proxy
+must both use `/v1/participants/{participantContextId}`. Updating the DID alone
+leaves public metadata, credential requests and request-status polling at HTTP 404
+if the proxy still forwards only `/v1beta/...`.
+
+For example, for an endpoint of
+`https://wallet.example.com/issuer/issuance/v1/participants/issuer`, add this
+location inside the existing TLS server block. Substitute the participant ID and
+the private upstream address for your deployment:
+
+```nginx
+location /issuer/issuance/v1/participants/issuer/ {
+    proxy_pass http://127.0.0.1:13132/api/issuance/v1/participants/issuer/;
+}
+```
+
+Keep the existing proxy headers, TLS configuration and management API boundaries.
+Back up the proxy configuration, run `nginx -t`, then reload it. No runtime restart,
+DID/key replacement or database migration is needed when the published DID already
+contains the correct v1 endpoint. Roll back by restoring the saved proxy configuration,
+checking it and reloading.
+
+Verify through the published HTTPS endpoint: `GET /metadata` returns 200;
+`POST /credentials` and `GET /requests/{requestId}` reject unauthenticated requests;
+an existing request is readable with its registered Holder's fresh SI token and
+rejects a replay. Use a new token for each independent request. A successful metadata
+check alone does not prove authenticated issuance or delivery.
+
 ### SQL configuration and migration
 
 RC5 selects the credential-offer datasource with
