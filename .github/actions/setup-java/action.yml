@@ -31,3 +31,4 @@ runs:
         java-version: '17'
         distribution: 'temurin'
         cache: 'gradle'
+    - uses: ./.github/actions/setup-token-patch

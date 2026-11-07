@@ -21,6 +21,7 @@ format.version = "1.1"
 
 [versions]
 edc = "1.0.0-RC5"
+identityhub-token-patch = "1.0.0-RC5-cx0149.2"
 edc-build = "1.5.2"
 opentelemetry = "2.27.0"
 postgres = "42.7.8"
@@ -58,6 +59,7 @@ bom-issuer-sql = { module = "org.eclipse.edc:issuerservice-feature-sql-bom", ver
 
 # IdentityHub modules
 edc-ih-core-keypairs = { module = "org.eclipse.edc:identity-hub-keypairs", version.ref = "edc" }
+edc-ih-local-did-publisher = { module = "org.eclipse.edc:local-did-publisher", version.ref = "edc" }
 edc-ih-spi = { module = "org.eclipse.edc:identity-hub-spi", version.ref = "edc" }
 edc-ih-participantcontext-config-store-sql = { module = "org.eclipse.edc:participantcontext-config-store-sql", version.ref = "edc" }
 edc-ih-spi-participant-context = { module = "org.eclipse.edc:participant-context-spi", version.ref = "edc" }
@@ -69,6 +71,7 @@ bom-ih = { module = "org.eclipse.edc:identityhub-bom", version.ref = "edc" }
 bom-ih-sql = { module = "org.eclipse.edc:identityhub-feature-sql-bom", version.ref = "edc" }
 
 # Third party libs
+json-schema-validator = { module = "com.networknt:json-schema-validator", version = "3.0.8" }
 jakarta-rs = { module = "jakarta.ws.rs:jakarta.ws.rs-api", version.ref = "jakarta-rs" }
 rest-assured = { module = "io.rest-assured:rest-assured", version.ref = "rest-assured" }
 opentelemetry-javaagent = { module = "io.opentelemetry.javaagent:opentelemetry-javaagent", version.ref = "opentelemetry" }

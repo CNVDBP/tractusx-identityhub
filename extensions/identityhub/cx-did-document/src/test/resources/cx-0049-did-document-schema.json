@@ -1,0 +1,128 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": [
+    "@context",
+    "id",
+    "service",
+    "verificationMethod",
+    "authentication",
+    "capabilityInvocation"
+  ],
+  "properties": {
+    "@context": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "contains": {
+        "type": "string",
+        "enum": [
+          "https://www.w3.org/ns/did/v1",
+          "https://w3id.org/security/suites/jws-2020/v1",
+          "https://w3id.org/dspace-dcp/v1.0/dcp.jsonld",
+          "https://w3id.org/dspace/2025/1/context.jsonld"
+        ]
+      },
+      "minContains": 4
+    },
+    "id": {
+      "type": "string"
+    },
+    "service": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "type",
+          "serviceEndpoint"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uri"
+          },
+          "type": {
+            "type": "string"
+          },
+          "serviceEndpoint": {
+            "type": "string",
+            "format": "uri"
+          }
+        }
+      },
+      "contains": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "const": "CredentialService"
+          }
+        }
+      }
+    },
+    "verificationMethod": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "type",
+          "publicKeyJwk"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "controller": {
+            "type": "string"
+          },
+          "publicKeyJwk": {
+            "type": "object",
+            "required": [
+              "kty",
+              "crv",
+              "x",
+              "y"
+            ],
+            "properties": {
+              "kty": {
+                "type": "string"
+              },
+              "crv": {
+                "type": "string"
+              },
+              "x": {
+                "type": "string"
+              },
+              "y": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "authentication": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "capabilityInvocation": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "assertionMethod": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

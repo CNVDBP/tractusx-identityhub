@@ -8,7 +8,7 @@
 [![Contributors][contributors-shield]][contributors-url]
 [![Stars][stars-shield]][stars-url]
 
-## Current EDC Version: 1.0.0-RC1
+## Current EDC Version: 1.0.0-RC5
 
 Welcome Contributor! Feel free to join our Identity Hub Weeklys if you want to contribute, or our office hours.
 You will find the links here: https://eclipse-tractusx.github.io/community/open-meetings/#Identity%20Hub%20Weekly
@@ -123,6 +123,9 @@ The IssuerService is responsible for the issuance of verifiable credentials to d
 - **Standards Compliance**: Ensure all issued credentials comply with DCP specifications and dataspace policies
 
 ## Getting Started
+
+For this fork, first [build the pinned RC5 SI token patch](tools/identityhub-token-patch/README.md#build).
+It supplies the reviewed authentication fixes used by all four runtimes.
 
 This project provides Helm charts for deploying both IdentityHub and IssuerService components. Each component is available in two variants:
 

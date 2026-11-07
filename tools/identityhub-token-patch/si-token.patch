@@ -1,0 +1,1618 @@
+diff --git a/core/common-core/src/main/java/org/eclipse/edc/identityhub/DefaultServicesExtension.java b/core/common-core/src/main/java/org/eclipse/edc/identityhub/DefaultServicesExtension.java
+index 7d137802..1143f9ec 100644
+--- a/core/common-core/src/main/java/org/eclipse/edc/identityhub/DefaultServicesExtension.java
++++ b/core/common-core/src/main/java/org/eclipse/edc/identityhub/DefaultServicesExtension.java
+@@ -30,6 +30,7 @@ import org.eclipse.edc.identityhub.spi.transformation.ScopeMappingRegistry;
+ import org.eclipse.edc.identityhub.spi.transformation.ScopeToCriterionTransformer;
+ import org.eclipse.edc.identityhub.spi.verifiablecredentials.store.CredentialOfferStore;
+ import org.eclipse.edc.identityhub.spi.verifiablecredentials.store.CredentialStore;
++import org.eclipse.edc.identityhub.verification.SelfIssuedTokenJtiValidationRule;
+ import org.eclipse.edc.jsonld.spi.JsonLd;
+ import org.eclipse.edc.jwt.spi.signer.JwsSignerProvider;
+ import org.eclipse.edc.jwt.validation.jti.JtiValidationStore;
+@@ -45,7 +46,6 @@ import org.eclipse.edc.spi.system.ExecutorInstrumentation;
+ import org.eclipse.edc.spi.system.ServiceExtension;
+ import org.eclipse.edc.spi.system.ServiceExtensionContext;
+ import org.eclipse.edc.token.rules.ExpirationIssuedAtValidationRule;
+-import org.eclipse.edc.token.rules.JtiValidationRule;
+ import org.eclipse.edc.token.rules.NotBeforeValidationRule;
+ import org.eclipse.edc.token.spi.TokenValidationRulesRegistry;
+ 
+@@ -130,8 +130,8 @@ public class DefaultServicesExtension implements ServiceExtension {
+         registry.addRule(DCP_PRESENTATION_ACCESS_TOKEN_CONTEXT, new NotBeforeValidationRule(clock, 5, true));
+ 
+         if (activateJtiCheck) {
+-            registry.addRule(DCP_PRESENTATION_SELF_ISSUED_TOKEN_CONTEXT, new JtiValidationRule(jtiValidationStore, context.getMonitor()));
+-            registry.addRule(DCP_PRESENTATION_ACCESS_TOKEN_CONTEXT, new JtiValidationRule(jwtValidationStore, context.getMonitor()));
++            registry.addRule(DCP_PRESENTATION_SELF_ISSUED_TOKEN_CONTEXT, new SelfIssuedTokenJtiValidationRule(jtiValidationStore, context.getMonitor()));
++            registry.addRule(DCP_PRESENTATION_ACCESS_TOKEN_CONTEXT, new SelfIssuedTokenJtiValidationRule(jwtValidationStore, context.getMonitor()));
+         } else {
+             context.getMonitor().warning("JWT Token ID (\"jti\" claim) Validation is not active. Please consider setting '%s=true' for protection against replay attacks".formatted(ACCESSTOKEN_JTI_VALIDATION_ACTIVATE));
+         }
+diff --git a/core/identity-hub-core/src/main/java/org/eclipse/edc/identityhub/core/CoreServicesExtension.java b/core/identity-hub-core/src/main/java/org/eclipse/edc/identityhub/core/CoreServicesExtension.java
+index 3983687e..0e2e6b9a 100644
+--- a/core/identity-hub-core/src/main/java/org/eclipse/edc/identityhub/core/CoreServicesExtension.java
++++ b/core/identity-hub-core/src/main/java/org/eclipse/edc/identityhub/core/CoreServicesExtension.java
+@@ -57,6 +57,7 @@ import org.eclipse.edc.identityhub.spi.verifiablecredentials.store.CredentialOff
+ import org.eclipse.edc.identityhub.spi.verifiablecredentials.store.CredentialStore;
+ import org.eclipse.edc.identityhub.spi.verification.SelfIssuedTokenVerifier;
+ import org.eclipse.edc.identityhub.statemachine.IdentityHubStateMachineConfiguration;
++import org.eclipse.edc.identityhub.verification.SelfIssuedTokenKeyResolver;
+ import org.eclipse.edc.jsonld.spi.JsonLd;
+ import org.eclipse.edc.jsonld.util.JacksonJsonLd;
+ import org.eclipse.edc.jwt.spi.signer.JwsSignerProvider;
+@@ -203,7 +204,7 @@ public class CoreServicesExtension implements ServiceExtension {
+     @Provider
+     public SelfIssuedTokenVerifier createAccessTokenVerifier(ServiceExtensionContext context) {
+         var keyResolver = new KeyPairResourcePublicKeyResolver(store, keyParserRegistry, context.getMonitor(), fallbackService);
+-        return new SelfIssuedTokenVerifierImpl(tokenValidationService, keyResolver, tokenValidationRulesRegistry, publicKeyResolver, participantContextService, clock);
++        return new SelfIssuedTokenVerifierImpl(tokenValidationService, keyResolver, tokenValidationRulesRegistry, new SelfIssuedTokenKeyResolver(keyParserRegistry, didResolverRegistry), participantContextService, clock);
+     }
+ 
+     @Provider
+diff --git a/core/identity-hub-core/src/main/java/org/eclipse/edc/identityhub/core/services/verification/SelfIssuedTokenVerifierImpl.java b/core/identity-hub-core/src/main/java/org/eclipse/edc/identityhub/core/services/verification/SelfIssuedTokenVerifierImpl.java
+index 5faf41cc..1adde386 100644
+--- a/core/identity-hub-core/src/main/java/org/eclipse/edc/identityhub/core/services/verification/SelfIssuedTokenVerifierImpl.java
++++ b/core/identity-hub-core/src/main/java/org/eclipse/edc/identityhub/core/services/verification/SelfIssuedTokenVerifierImpl.java
+@@ -18,10 +18,10 @@ import org.eclipse.edc.identityhub.publickey.KeyPairResourcePublicKeyResolver;
+ import org.eclipse.edc.identityhub.spi.participantcontext.IdentityHubParticipantContextService;
+ import org.eclipse.edc.identityhub.spi.verification.SelfIssuedTokenVerifier;
+ import org.eclipse.edc.identityhub.verification.IssuerKeyIdRule;
++import org.eclipse.edc.identityhub.verification.SelfIssuedTokenKeyResolver;
+ import org.eclipse.edc.identityhub.verification.SelfIssuedTokenPrecheck;
+ import org.eclipse.edc.identityhub.verification.SelfIssuedTokenPrecheck.UnverifiedToken;
+ import org.eclipse.edc.jwt.spi.JwtRegisteredClaimNames;
+-import org.eclipse.edc.keys.spi.PublicKeyResolver;
+ import org.eclipse.edc.spi.result.Result;
+ import org.eclipse.edc.token.rules.AudienceValidationRule;
+ import org.eclipse.edc.token.rules.ExpirationIssuedAtValidationRule;
+@@ -54,14 +54,14 @@ public class SelfIssuedTokenVerifierImpl implements SelfIssuedTokenVerifier {
+     private final TokenValidationService tokenValidationService;
+     private final KeyPairResourcePublicKeyResolver localPublicKeyService;
+     private final TokenValidationRulesRegistry tokenValidationRulesRegistry;
+-    private final PublicKeyResolver publicKeyResolver;
++    private final SelfIssuedTokenKeyResolver publicKeyResolver;
+     private final IdentityHubParticipantContextService participantContextService;
+     private final Clock clock;
+ 
+     public SelfIssuedTokenVerifierImpl(TokenValidationService tokenValidationService,
+                                        KeyPairResourcePublicKeyResolver localPublicKeyService,
+                                        TokenValidationRulesRegistry tokenValidationRulesRegistry,
+-                                       PublicKeyResolver publicKeyResolver,
++                                       SelfIssuedTokenKeyResolver publicKeyResolver,
+                                        IdentityHubParticipantContextService participantContextService,
+                                        Clock clock) {
+         this.tokenValidationService = tokenValidationService;
+@@ -101,7 +101,7 @@ public class SelfIssuedTokenVerifierImpl implements SelfIssuedTokenVerifier {
+         idTokenRules.add(new IssuerEqualsSubjectRule());
+         idTokenRules.add(new SubJwkIsNullRule());
+         idTokenRules.add(new AudienceValidationRule(participantDid));
+-        var res = tokenValidationService.validate(token, publicKeyResolver, idTokenRules);
++        var res = tokenValidationService.validate(token, kid -> publicKeyResolver.resolveKey(unverified.issuer(), kid), idTokenRules);
+ 
+         if (res.failed()) {
+             return res.mapFailure();
+diff --git a/core/identity-hub-core/src/test/java/org/eclipse/edc/identityhub/core/services/verification/SelfIssuedTokenDidTest.java b/core/identity-hub-core/src/test/java/org/eclipse/edc/identityhub/core/services/verification/SelfIssuedTokenDidTest.java
+new file mode 100644
+index 00000000..53ebe59e
+--- /dev/null
++++ b/core/identity-hub-core/src/test/java/org/eclipse/edc/identityhub/core/services/verification/SelfIssuedTokenDidTest.java
+@@ -0,0 +1,168 @@
++/*
++ *  Copyright (c) 2026 Contributors to the Eclipse Foundation and VDBP
++ *
++ *  This program and the accompanying materials are made available under the
++ *  terms of the Apache License, Version 2.0 which is available at
++ *  https://www.apache.org/licenses/LICENSE-2.0
++ *
++ *  SPDX-License-Identifier: Apache-2.0
++ *
++ *  Contributors:
++ *       VDBP - initial implementation
++ *
++ */
++
++package org.eclipse.edc.identityhub.core.services.verification;
++
++import com.nimbusds.jose.JOSEException;
++import com.nimbusds.jose.JWSAlgorithm;
++import com.nimbusds.jose.JWSHeader;
++import com.nimbusds.jose.crypto.ECDSASigner;
++import com.nimbusds.jose.jwk.Curve;
++import com.nimbusds.jose.jwk.ECKey;
++import com.nimbusds.jose.jwk.gen.ECKeyGenerator;
++import com.nimbusds.jwt.JWTClaimsSet;
++import com.nimbusds.jwt.SignedJWT;
++import org.eclipse.edc.iam.did.spi.document.DidDocument;
++import org.eclipse.edc.iam.did.spi.document.VerificationMethod;
++import org.eclipse.edc.iam.did.spi.resolution.DidResolverRegistry;
++import org.eclipse.edc.identityhub.publickey.KeyPairResourcePublicKeyResolver;
++import org.eclipse.edc.identityhub.spi.participantcontext.IdentityHubParticipantContextService;
++import org.eclipse.edc.identityhub.spi.participantcontext.model.IdentityHubParticipantContext;
++import org.eclipse.edc.identityhub.verification.SelfIssuedTokenJtiValidationRule;
++import org.eclipse.edc.identityhub.verification.SelfIssuedTokenKeyResolver;
++import org.eclipse.edc.keys.spi.KeyParserRegistry;
++import org.eclipse.edc.spi.result.Result;
++import org.eclipse.edc.spi.result.ServiceResult;
++import org.eclipse.edc.token.InMemoryJtiValidationStore;
++import org.eclipse.edc.token.TokenValidationRulesRegistryImpl;
++import org.eclipse.edc.token.TokenValidationServiceImpl;
++import org.junit.jupiter.api.BeforeEach;
++import org.junit.jupiter.api.Test;
++
++import java.time.Clock;
++import java.time.Instant;
++import java.util.Date;
++import java.util.List;
++import java.util.UUID;
++
++import static org.eclipse.edc.identityhub.spi.verification.SelfIssuedTokenConstants.DCP_PRESENTATION_ACCESS_TOKEN_CONTEXT;
++import static org.eclipse.edc.identityhub.spi.verification.SelfIssuedTokenConstants.DCP_PRESENTATION_SELF_ISSUED_TOKEN_CONTEXT;
++import static org.eclipse.edc.junit.assertions.AbstractResultAssert.assertThat;
++import static org.mockito.ArgumentMatchers.anyString;
++import static org.mockito.ArgumentMatchers.eq;
++import static org.mockito.Mockito.mock;
++import static org.mockito.Mockito.when;
++
++class SelfIssuedTokenDidTest {
++    private static final String SENDER = "did:web:sender.example";
++    private static final String RECIPIENT = "did:web:recipient.example";
++    private static final String KEY_ID = SENDER + "#key";
++    private final DidResolverRegistry dids = mock();
++    private ECKey key;
++    private VerificationMethod method;
++    private SelfIssuedTokenVerifierImpl verifier;
++
++    @BeforeEach
++    void setUp() throws JOSEException {
++        key = new ECKeyGenerator(Curve.P_256).generate();
++        method = VerificationMethod.Builder.newInstance().id(KEY_ID).type("JsonWebKey2020")
++                .controller(SENDER).publicKeyJwk(key.toPublicJWK().toJSONObject()).build();
++        KeyParserRegistry parser = mock();
++        when(parser.parse(anyString())).thenReturn(Result.success(key.toECPublicKey()));
++        KeyPairResourcePublicKeyResolver local = mock();
++        when(local.resolveKey(anyString(), eq("recipient"))).thenReturn(Result.success(key.toECPublicKey()));
++        IdentityHubParticipantContextService participants = mock();
++        when(participants.rejectIfDeactivated("recipient")).thenReturn(ServiceResult.success(
++                IdentityHubParticipantContext.Builder.newInstance().participantContextId("recipient")
++                        .did(RECIPIENT).apiTokenAlias("test").build()));
++        var rules = new TokenValidationRulesRegistryImpl();
++        var replay = new SelfIssuedTokenJtiValidationRule(new InMemoryJtiValidationStore(), mock());
++        rules.addRule(DCP_PRESENTATION_SELF_ISSUED_TOKEN_CONTEXT, replay);
++        rules.addRule(DCP_PRESENTATION_ACCESS_TOKEN_CONTEXT, replay);
++        verifier = new SelfIssuedTokenVerifierImpl(new TokenValidationServiceImpl(), local,
++                rules, new SelfIssuedTokenKeyResolver(parser, dids), participants, Clock.systemUTC());
++    }
++
++    @Test
++    void rejectsKeyWithoutCapabilityInvocation() throws JOSEException {
++        document(SENDER, List.of());
++        assertThat(verifier.verify(token(KEY_ID), "recipient")).isFailed();
++    }
++
++    @Test
++    void rejectsDocumentForDifferentDid() throws JOSEException {
++        document("did:web:other.example", List.of(KEY_ID));
++        assertThat(verifier.verify(token(KEY_ID), "recipient")).isFailed();
++    }
++
++    @Test
++    void acceptsAuthorizedKey() throws JOSEException {
++        document(SENDER, List.of(KEY_ID));
++        assertThat(verifier.verify(token(KEY_ID), "recipient")).isSucceeded();
++    }
++
++    @Test
++    void acceptsSingleAuthorizedKeyWithoutKid() throws JOSEException {
++        document(SENDER, List.of(KEY_ID));
++        assertThat(verifier.verify(token(null), "recipient")).isSucceeded();
++    }
++
++    @Test
++    void rejectsReplayOfSignedTokenWithoutKid() throws JOSEException {
++        document(SENDER, List.of(KEY_ID));
++        var token = token(null);
++        assertThat(verifier.verify(token, "recipient")).isSucceeded();
++        assertThat(verifier.verify(token, "recipient")).isFailed();
++    }
++
++    @Test
++    void rejectsMultipleMethodsWithoutKidEvenIfOnlyOneIsAuthorized() throws JOSEException {
++        var other = VerificationMethod.Builder.newInstance().id(SENDER + "#other").type("Unsupported")
++                .controller(SENDER).publicKeyJwk(key.toPublicJWK().toJSONObject()).build();
++        when(dids.resolve(SENDER)).thenReturn(Result.success(DidDocument.Builder.newInstance().id(SENDER)
++                .verificationMethod(List.of(method, other)).capabilityInvocation(List.of(KEY_ID)).build()));
++        assertThat(verifier.verify(token(null), "recipient")).isFailed();
++    }
++
++    @Test
++    void rejectsSingleUnauthorizedMethodWithoutKid() throws JOSEException {
++        document(SENDER, List.of());
++        assertThat(verifier.verify(token(null), "recipient")).isFailed();
++    }
++
++    @Test
++    void acceptsRelativeVerificationMethodAndCapabilityReference() throws JOSEException {
++        method = VerificationMethod.Builder.newInstance().id("#key").type("JsonWebKey2020")
++                .controller(SENDER).publicKeyJwk(key.toPublicJWK().toJSONObject()).build();
++        document(SENDER, List.of("#key"));
++        assertThat(verifier.verify(token(KEY_ID), "recipient")).isSucceeded();
++    }
++
++    @Test
++    void rejectsUnknownKid() throws JOSEException {
++        document(SENDER, List.of(KEY_ID));
++        assertThat(verifier.verify(token(SENDER + "#unknown"), "recipient")).isFailed();
++    }
++
++    private void document(String id, List<String> capabilities) {
++        when(dids.resolve(SENDER)).thenReturn(Result.success(DidDocument.Builder.newInstance().id(id)
++                .verificationMethod(List.of(method)).capabilityInvocation(capabilities).build()));
++    }
++
++    private String token(String kid) throws JOSEException {
++        var access = sign(KEY_ID, claims().issuer(RECIPIENT).subject(SENDER).claim("scope", "test").build());
++        return sign(kid, claims().issuer(SENDER).subject(SENDER).claim("token", access).build());
++    }
++
++    private JWTClaimsSet.Builder claims() {
++        return new JWTClaimsSet.Builder().audience(RECIPIENT).jwtID(UUID.randomUUID().toString())
++                .issueTime(new Date()).expirationTime(Date.from(Instant.now().plusSeconds(120)));
++    }
++
++    private String sign(String kid, JWTClaimsSet claims) throws JOSEException {
++        var jwt = new SignedJWT(new JWSHeader.Builder(JWSAlgorithm.ES256).keyID(kid).build(), claims);
++        jwt.sign(new ECDSASigner(key));
++        return jwt.serialize();
++    }
++}
+diff --git a/core/identity-hub-core/src/test/java/org/eclipse/edc/identityhub/core/services/verification/SelfIssuedTokenVerifierImplComponentTest.java b/core/identity-hub-core/src/test/java/org/eclipse/edc/identityhub/core/services/verification/SelfIssuedTokenVerifierImplComponentTest.java
+index f941f926..c69e235a 100644
+--- a/core/identity-hub-core/src/test/java/org/eclipse/edc/identityhub/core/services/verification/SelfIssuedTokenVerifierImplComponentTest.java
++++ b/core/identity-hub-core/src/test/java/org/eclipse/edc/identityhub/core/services/verification/SelfIssuedTokenVerifierImplComponentTest.java
+@@ -25,17 +25,17 @@ import org.eclipse.edc.identityhub.accesstoken.rules.ClaimIsPresentRule;
+ import org.eclipse.edc.identityhub.publickey.KeyPairResourcePublicKeyResolver;
+ import org.eclipse.edc.identityhub.spi.participantcontext.IdentityHubParticipantContextService;
+ import org.eclipse.edc.identityhub.spi.participantcontext.model.IdentityHubParticipantContext;
++import org.eclipse.edc.identityhub.verification.SelfIssuedTokenJtiValidationRule;
++import org.eclipse.edc.identityhub.verification.SelfIssuedTokenKeyResolver;
+ import org.eclipse.edc.junit.annotations.ComponentTest;
+ import org.eclipse.edc.jwt.validation.jti.JtiValidationEntry;
+ import org.eclipse.edc.jwt.validation.jti.JtiValidationStore;
+-import org.eclipse.edc.keys.spi.PublicKeyResolver;
+ import org.eclipse.edc.spi.result.Result;
+ import org.eclipse.edc.spi.result.ServiceResult;
+ import org.eclipse.edc.spi.result.StoreResult;
+ import org.eclipse.edc.token.TokenValidationRulesRegistryImpl;
+ import org.eclipse.edc.token.TokenValidationServiceImpl;
+ import org.eclipse.edc.token.rules.ExpirationIssuedAtValidationRule;
+-import org.eclipse.edc.token.rules.JtiValidationRule;
+ import org.eclipse.edc.token.rules.NotBeforeValidationRule;
+ import org.junit.jupiter.api.BeforeEach;
+ import org.junit.jupiter.api.Test;
+@@ -75,7 +75,7 @@ class SelfIssuedTokenVerifierImplComponentTest {
+     private KeyPair providerKeyPair; // this is used to sign the incoming SI token
+     private KeyPairGenerator generator;
+     private JtiValidationStore jtiValidationStore;
+-    private PublicKeyResolver senderKeyResolver; // resolves the key of the SI token from the sender's DID
++    private SelfIssuedTokenKeyResolver senderKeyResolver; // resolves the key of the SI token from the sender's DID
+ 
+     @BeforeEach
+     void setUp() throws NoSuchAlgorithmException, InvalidAlgorithmParameterException {
+@@ -100,8 +100,8 @@ class SelfIssuedTokenVerifierImplComponentTest {
+         var entry = new JtiValidationEntry("test-jti", null);
+         jtiValidationStore = mock(JtiValidationStore.class);
+         when(jtiValidationStore.findById(anyString())).thenReturn(entry);
+-        when(jtiValidationStore.storeEntry(entry)).thenReturn(StoreResult.success());
+-        ruleRegistry.addRule(DCP_PRESENTATION_ACCESS_TOKEN_CONTEXT, new JtiValidationRule(jtiValidationStore, mock()));
++        when(jtiValidationStore.storeEntry(any())).thenReturn(StoreResult.success());
++        ruleRegistry.addRule(DCP_PRESENTATION_ACCESS_TOKEN_CONTEXT, new SelfIssuedTokenJtiValidationRule(jtiValidationStore, mock()));
+ 
+         var resolverMock = mock(KeyPairResourcePublicKeyResolver.class);
+         when(resolverMock.resolveKey(anyString(), anyString())).thenReturn(Result.success(stsKeyPair.getPublic()));
+@@ -110,7 +110,7 @@ class SelfIssuedTokenVerifierImplComponentTest {
+                 .thenReturn(ServiceResult.success(IdentityHubParticipantContext.Builder.newInstance().did(PARTICIPANT_DID).participantContextId(PARTICIPANT_CONTEXT_ID).apiTokenAlias("foobar").build()));
+         when(participantContextService.rejectIfDeactivated(any())).thenCallRealMethod();
+         senderKeyResolver = mock();
+-        when(senderKeyResolver.resolveKey(anyString())).thenReturn(Result.success(providerKeyPair.getPublic()));
++        when(senderKeyResolver.resolveKey(anyString(), any())).thenReturn(Result.success(providerKeyPair.getPublic()));
+         verifier = new SelfIssuedTokenVerifierImpl(tokenValidationService, resolverMock, ruleRegistry, senderKeyResolver, participantContextService, Clock.systemUTC());
+     }
+ 
+@@ -630,7 +630,7 @@ class SelfIssuedTokenVerifierImplComponentTest {
+         try {
+             var signer = new ECDSASigner(signingKey, Curve.P_256);
+             var jwsHeader = new JWSHeader.Builder(JWSAlgorithm.ES256).keyID(keyId).build();
+-            var jwt = new SignedJWT(jwsHeader, claimsSet);
++            var jwt = new SignedJWT(jwsHeader, new JWTClaimsSet.Builder(claimsSet).jwtID(UUID.randomUUID().toString()).build());
+             jwt.sign(signer);
+             return jwt.serialize();
+ 
+@@ -638,4 +638,4 @@ class SelfIssuedTokenVerifierImplComponentTest {
+             throw new RuntimeException(e);
+         }
+     }
+-}
+\ No newline at end of file
++}
+diff --git a/core/identity-hub-core/src/test/java/org/eclipse/edc/identityhub/core/services/verification/SelfIssuedTokenVerifierImplTest.java b/core/identity-hub-core/src/test/java/org/eclipse/edc/identityhub/core/services/verification/SelfIssuedTokenVerifierImplTest.java
+index 10ccaa74..c0963a2e 100644
+--- a/core/identity-hub-core/src/test/java/org/eclipse/edc/identityhub/core/services/verification/SelfIssuedTokenVerifierImplTest.java
++++ b/core/identity-hub-core/src/test/java/org/eclipse/edc/identityhub/core/services/verification/SelfIssuedTokenVerifierImplTest.java
+@@ -20,6 +20,7 @@ import org.eclipse.edc.identityhub.spi.participantcontext.IdentityHubParticipant
+ import org.eclipse.edc.identityhub.spi.participantcontext.model.IdentityHubParticipantContext;
+ import org.eclipse.edc.identityhub.verifiablecredentials.testfixtures.JwtCreationUtil;
+ import org.eclipse.edc.identityhub.verifiablecredentials.testfixtures.VerifiableCredentialTestUtil;
++import org.eclipse.edc.identityhub.verification.SelfIssuedTokenKeyResolver;
+ import org.eclipse.edc.junit.assertions.AbstractResultAssert;
+ import org.eclipse.edc.keys.spi.PublicKeyResolver;
+ import org.eclipse.edc.spi.iam.ClaimToken;
+@@ -48,7 +49,7 @@ class SelfIssuedTokenVerifierImplTest {
+     private static final String OTHER_PARTICIPANT_DID = "did:web:provider";
+     private final TokenValidationService tokenValidationSerivce = mock();
+     private final TokenValidationRulesRegistry tokenValidationRulesRegistry = mock();
+-    private final PublicKeyResolver pkResolver = mock();
++    private final SelfIssuedTokenKeyResolver pkResolver = mock();
+     private final ClaimToken idToken = ClaimToken.Builder.newInstance()
+             .claim("token", "test-at")
+             .claim("scope", "org.eclipse.dspace.dcp.vc.type:AlumniCredential:read")
+@@ -139,4 +140,4 @@ class SelfIssuedTokenVerifierImplTest {
+     private IdentityHubParticipantContext createParticipantContext() {
+         return createParticipantContext(PARTICIPANT_CONTEXT_ID);
+     }
+-}
+\ No newline at end of file
++}
+diff --git a/core/lib/common-lib/src/main/java/org/eclipse/edc/identityhub/verification/IssuerKeyIdRule.java b/core/lib/common-lib/src/main/java/org/eclipse/edc/identityhub/verification/IssuerKeyIdRule.java
+index e02f7ea7..07f7da66 100644
+--- a/core/lib/common-lib/src/main/java/org/eclipse/edc/identityhub/verification/IssuerKeyIdRule.java
++++ b/core/lib/common-lib/src/main/java/org/eclipse/edc/identityhub/verification/IssuerKeyIdRule.java
+@@ -58,7 +58,11 @@ public class IssuerKeyIdRule implements TokenValidationRule {
+      * @param issuer the {@code iss} claim
+      */
+     public static Result<Void> checkKeyBinding(@Nullable String keyId, @Nullable String issuer) {
+-        if (keyId == null || keyId.isBlank()) {
++        // Without kid, the resolved DID must contain exactly one authorized verification method.
++        if (keyId == null) {
++            return validateIssuer(issuer);
++        }
++        if (keyId.isBlank()) {
+             return Result.failure("Header 'kid' is missing.");
+         }
+         if (keyId.length() > MAX_LENGTH) {
+diff --git a/core/lib/common-lib/src/main/java/org/eclipse/edc/identityhub/verification/SelfIssuedTokenJtiValidationRule.java b/core/lib/common-lib/src/main/java/org/eclipse/edc/identityhub/verification/SelfIssuedTokenJtiValidationRule.java
+new file mode 100644
+index 00000000..2d5023a9
+--- /dev/null
++++ b/core/lib/common-lib/src/main/java/org/eclipse/edc/identityhub/verification/SelfIssuedTokenJtiValidationRule.java
+@@ -0,0 +1,45 @@
++/*
++ *  Copyright (c) 2026 Contributors to the Eclipse Foundation and VDBP
++ *
++ *  This program and the accompanying materials are made available under the
++ *  terms of the Apache License, Version 2.0 which is available at
++ *  https://www.apache.org/licenses/LICENSE-2.0
++ *
++ *  SPDX-License-Identifier: Apache-2.0
++ *
++ *  Contributors:
++ *       VDBP - initial implementation
++ *
++ */
++
++package org.eclipse.edc.identityhub.verification;
++
++import org.eclipse.edc.jwt.validation.jti.JtiValidationStore;
++import org.eclipse.edc.spi.iam.ClaimToken;
++import org.eclipse.edc.spi.monitor.Monitor;
++import org.eclipse.edc.spi.result.Result;
++import org.eclipse.edc.token.rules.JtiValidationRule;
++import org.jetbrains.annotations.NotNull;
++import org.jetbrains.annotations.Nullable;
++
++import java.util.Map;
++
++/** Requires a nonce and retains it throughout the DCP validators' five-second clock allowance. */
++public class SelfIssuedTokenJtiValidationRule extends JtiValidationRule {
++    public SelfIssuedTokenJtiValidationRule(JtiValidationStore store, Monitor monitor) {
++        super(store, monitor);
++    }
++
++    @Override
++    public Result<Void> checkRule(@NotNull ClaimToken token, @Nullable Map<String, Object> additional) {
++        var jti = token.getClaim("jti");
++        var expiry = token.getInstantClaim("exp");
++        if (!(jti instanceof String id) || id.isBlank() || expiry == null) {
++            return Result.failure("JTI validation requires a non-blank jti and an exp claim.");
++        }
++        // Extend only the store retention; the original token's expiration validation is unchanged.
++        var retained = ClaimToken.Builder.newInstance().claims(token.getClaims())
++                .claim("exp", expiry.plusSeconds(5).getEpochSecond()).build();
++        return super.checkRule(retained, additional);
++    }
++}
+diff --git a/core/lib/common-lib/src/main/java/org/eclipse/edc/identityhub/verification/SelfIssuedTokenKeyResolver.java b/core/lib/common-lib/src/main/java/org/eclipse/edc/identityhub/verification/SelfIssuedTokenKeyResolver.java
+new file mode 100644
+index 00000000..2347f6a2
+--- /dev/null
++++ b/core/lib/common-lib/src/main/java/org/eclipse/edc/identityhub/verification/SelfIssuedTokenKeyResolver.java
+@@ -0,0 +1,83 @@
++/*
++ *  Copyright (c) 2026 Contributors to the Eclipse Foundation and VDBP
++ *
++ *  This program and the accompanying materials are made available under the
++ *  terms of the Apache License, Version 2.0 which is available at
++ *  https://www.apache.org/licenses/LICENSE-2.0
++ *
++ *  SPDX-License-Identifier: Apache-2.0
++ *
++ *  Contributors:
++ *       VDBP - initial implementation
++ *
++ */
++
++package org.eclipse.edc.identityhub.verification;
++
++import com.nimbusds.jose.jwk.JWK;
++import org.eclipse.edc.iam.did.spi.document.DidDocument;
++import org.eclipse.edc.iam.did.spi.resolution.DidResolverRegistry;
++import org.eclipse.edc.keys.spi.KeyParserRegistry;
++import org.eclipse.edc.spi.result.Result;
++import org.jetbrains.annotations.Nullable;
++
++import java.security.PublicKey;
++import java.text.ParseException;
++
++import static org.eclipse.edc.iam.did.spi.document.DidConstants.ALLOWED_VERIFICATION_TYPES;
++
++/** Resolves SI token keys from the same DID document whose identity and key authorization are checked. */
++public class SelfIssuedTokenKeyResolver {
++    private final KeyParserRegistry parsers;
++    private final DidResolverRegistry dids;
++
++    public SelfIssuedTokenKeyResolver(KeyParserRegistry parsers, DidResolverRegistry dids) {
++        this.parsers = parsers;
++        this.dids = dids;
++    }
++
++    public Result<PublicKey> resolveKey(String issuer, @Nullable String kid) {
++        return dids.resolve(issuer)
++                .compose(document -> selectKey(document, issuer, kid))
++                .compose(parsers::parse)
++                .compose(key -> key instanceof PublicKey publicKey ? Result.success(publicKey)
++                        : Result.failure("Verification method did not contain public key material."));
++    }
++
++    private Result<String> selectKey(DidDocument document, String issuer, @Nullable String kid) {
++        if (!issuer.equals(document.getId())) {
++            return Result.failure("SI token issuer does not match the resolved DID document id.");
++        }
++        var methods = document.getVerificationMethod();
++        if (kid == null && methods.size() != 1) {
++            return Result.failure("Without kid, the DID document must contain exactly one verification method.");
++        }
++        if (methods.stream().map(vm -> absoluteId(issuer, vm.getId())).distinct().count() != methods.size()) {
++            return Result.failure("Every verification method must have a unique ID.");
++        }
++        var selected = methods.stream().filter(vm -> kid == null || kid.equals(absoluteId(issuer, vm.getId()))).toList();
++        if (selected.size() != 1) {
++            return Result.failure("No unique verification method matches kid.");
++        }
++        var method = selected.get(0);
++        if (method.getType() == null || !ALLOWED_VERIFICATION_TYPES.contains(method.getType())) {
++            return Result.failure("Unsupported verification method type.");
++        }
++        var id = absoluteId(issuer, method.getId());
++        if (id == null || document.getCapabilityInvocation().stream().noneMatch(ref -> id.equals(absoluteId(issuer, ref)))) {
++            return Result.failure("SI token signing key lacks capabilityInvocation authorization.");
++        }
++        if (method.getPublicKeyJwk() == null) {
++            return Result.failure("Verification method has no public JWK.");
++        }
++        try {
++            return Result.success(JWK.parse(method.getPublicKeyJwk()).toJSONString());
++        } catch (ParseException e) {
++            return Result.failure("Invalid public JWK in verification method.");
++        }
++    }
++
++    private @Nullable String absoluteId(String did, @Nullable String id) {
++        return id != null && id.startsWith("#") ? did + id : id;
++    }
++}
+diff --git a/core/lib/common-lib/src/main/java/org/eclipse/edc/identityhub/verification/SelfIssuedTokenPrecheck.java b/core/lib/common-lib/src/main/java/org/eclipse/edc/identityhub/verification/SelfIssuedTokenPrecheck.java
+index 43b2fe9b..23a74053 100644
+--- a/core/lib/common-lib/src/main/java/org/eclipse/edc/identityhub/verification/SelfIssuedTokenPrecheck.java
++++ b/core/lib/common-lib/src/main/java/org/eclipse/edc/identityhub/verification/SelfIssuedTokenPrecheck.java
+@@ -57,15 +57,14 @@ public final class SelfIssuedTokenPrecheck {
+         }
+ 
+         var kid = jwt.getHeader().getKeyID();
+-        if (kid == null) {
+-            return Result.failure("Kid not present");
+-        }
+         var issuer = claims.getIssuer();
+         if (issuer == null) {
+             return Result.failure("Issuer claim not present");
+         }
+         return IssuerKeyIdRule.checkKeyBinding(kid, issuer)
+                 .compose(v -> checkDid(issuer))
++                .compose(v -> claims.getJWTID() == null || claims.getJWTID().isBlank()
++                        ? Result.failure("Required claim 'jti' is missing or blank.") : Result.success())
+                 .map(v -> new UnverifiedToken(kid, issuer, claims));
+     }
+ 
+diff --git a/core/lib/common-lib/src/test/java/org/eclipse/edc/identityhub/verification/IssuerKeyIdRuleTest.java b/core/lib/common-lib/src/test/java/org/eclipse/edc/identityhub/verification/IssuerKeyIdRuleTest.java
+index 8daf2a08..aca902fb 100644
+--- a/core/lib/common-lib/src/test/java/org/eclipse/edc/identityhub/verification/IssuerKeyIdRuleTest.java
++++ b/core/lib/common-lib/src/test/java/org/eclipse/edc/identityhub/verification/IssuerKeyIdRuleTest.java
+@@ -63,9 +63,8 @@ class IssuerKeyIdRuleTest {
+     }
+ 
+     @Test
+-    void checkRule_whenKidMissing() {
+-        assertThat(new IssuerKeyIdRule(null).checkRule(issuer("did:web:acme.com"), null)).isFailed()
+-                .detail().isEqualTo("Header 'kid' is missing.");
++    void checkRule_whenKidMissing_validatesIssuer() {
++        assertThat(new IssuerKeyIdRule(null).checkRule(issuer("did:web:acme.com"), null)).isSucceeded();
+     }
+ 
+     @ParameterizedTest
+diff --git a/core/lib/common-lib/src/test/java/org/eclipse/edc/identityhub/verification/SelfIssuedTokenJtiValidationRuleTest.java b/core/lib/common-lib/src/test/java/org/eclipse/edc/identityhub/verification/SelfIssuedTokenJtiValidationRuleTest.java
+new file mode 100644
+index 00000000..ed2a24ea
+--- /dev/null
++++ b/core/lib/common-lib/src/test/java/org/eclipse/edc/identityhub/verification/SelfIssuedTokenJtiValidationRuleTest.java
+@@ -0,0 +1,47 @@
++/*
++ *  Copyright (c) 2026 Contributors to the Eclipse Foundation and VDBP
++ *
++ *  This program and the accompanying materials are made available under the
++ *  terms of the Apache License, Version 2.0 which is available at
++ *  https://www.apache.org/licenses/LICENSE-2.0
++ *
++ *  SPDX-License-Identifier: Apache-2.0
++ *
++ *  Contributors:
++ *       VDBP - initial implementation
++ *
++ */
++
++package org.eclipse.edc.identityhub.verification;
++
++import org.eclipse.edc.spi.iam.ClaimToken;
++import org.eclipse.edc.token.InMemoryJtiValidationStore;
++import org.junit.jupiter.api.Test;
++
++import java.time.Instant;
++
++import static org.eclipse.edc.junit.assertions.AbstractResultAssert.assertThat;
++import static org.mockito.Mockito.mock;
++
++class SelfIssuedTokenJtiValidationRuleTest {
++    @Test
++    void rejectsReplayAcrossVerifiersDuringClockAllowance() {
++        var store = new InMemoryJtiValidationStore();
++        var first = new SelfIssuedTokenJtiValidationRule(store, mock());
++        var second = new SelfIssuedTokenJtiValidationRule(store, mock());
++        var expiry = Instant.now().plusSeconds(120).getEpochSecond();
++        var token = ClaimToken.Builder.newInstance().claim("jti", "unique-token").claim("exp", expiry).build();
++        assertThat(first.checkRule(token, null)).isSucceeded();
++        assertThat(second.checkRule(token, null)).isFailed();
++        org.assertj.core.api.Assertions.assertThat(token.getClaim("exp")).isEqualTo(expiry);
++        org.assertj.core.api.Assertions.assertThat(store.findById("unique-token").expirationTimestamp()).isEqualTo((expiry + 5) * 1000);
++    }
++
++    @Test
++    void rejectsMissingNonceOrExpiration() {
++        var rule = new SelfIssuedTokenJtiValidationRule(new InMemoryJtiValidationStore(), mock());
++        assertThat(rule.checkRule(ClaimToken.Builder.newInstance().claim("exp", 1L).build(), null)).isFailed();
++        assertThat(rule.checkRule(ClaimToken.Builder.newInstance().claim("jti", " ").claim("exp", 1L).build(), null)).isFailed();
++        assertThat(rule.checkRule(ClaimToken.Builder.newInstance().claim("jti", "unique").build(), null)).isFailed();
++    }
++}
+diff --git a/core/lib/common-lib/src/test/java/org/eclipse/edc/identityhub/verification/SelfIssuedTokenPrecheckTest.java b/core/lib/common-lib/src/test/java/org/eclipse/edc/identityhub/verification/SelfIssuedTokenPrecheckTest.java
+index 97674330..7d1e3954 100644
+--- a/core/lib/common-lib/src/test/java/org/eclipse/edc/identityhub/verification/SelfIssuedTokenPrecheckTest.java
++++ b/core/lib/common-lib/src/test/java/org/eclipse/edc/identityhub/verification/SelfIssuedTokenPrecheckTest.java
+@@ -80,8 +80,13 @@ class SelfIssuedTokenPrecheckTest {
+     }
+ 
+     @Test
+-    void check_missingKid_fails() {
+-        assertThat(SelfIssuedTokenPrecheck.check(token(null, ISSUER))).isFailed().detail().isEqualTo("Kid not present");
++    void check_missingKid_defersKeySelection() {
++        assertThat(SelfIssuedTokenPrecheck.check(token(null, ISSUER))).isSucceeded();
++    }
++
++    @Test
++    void check_missingJti_fails() {
++        assertThat(SelfIssuedTokenPrecheck.check(token(ISSUER + "#key-1", ISSUER, null))).isFailed();
+     }
+ 
+     @Test
+@@ -137,10 +142,14 @@ class SelfIssuedTokenPrecheckTest {
+     }
+ 
+     private String token(String kid, String issuer) {
++        return token(kid, issuer, "test-jti");
++    }
++
++    private String token(String kid, String issuer, String jti) {
+         try {
+             ECKey key = new ECKeyGenerator(Curve.P_256).generate();
+             var header = new JWSHeader.Builder(JWSAlgorithm.ES256).keyID(kid).build();
+-            var jwt = new SignedJWT(header, new JWTClaimsSet.Builder().issuer(issuer).subject(issuer).build());
++            var jwt = new SignedJWT(header, new JWTClaimsSet.Builder().issuer(issuer).subject(issuer).jwtID(jti).build());
+             jwt.sign(new ECDSASigner(key));
+             return jwt.serialize();
+         } catch (JOSEException e) {
+diff --git a/protocols/dcp/dcp-identityhub/dcp-identityhub-core/src/main/java/org/eclipse/edc/identityhub/protocols/dcp/issuer/DcpHolderCoreExtension.java b/protocols/dcp/dcp-identityhub/dcp-identityhub-core/src/main/java/org/eclipse/edc/identityhub/protocols/dcp/issuer/DcpHolderCoreExtension.java
+index a03a6ced..6e1f7c5d 100644
+--- a/protocols/dcp/dcp-identityhub/dcp-identityhub-core/src/main/java/org/eclipse/edc/identityhub/protocols/dcp/issuer/DcpHolderCoreExtension.java
++++ b/protocols/dcp/dcp-identityhub/dcp-identityhub-core/src/main/java/org/eclipse/edc/identityhub/protocols/dcp/issuer/DcpHolderCoreExtension.java
+@@ -14,11 +14,14 @@
+ 
+ package org.eclipse.edc.identityhub.protocols.dcp.issuer;
+ 
+-import org.eclipse.edc.iam.did.spi.resolution.DidPublicKeyResolver;
++import org.eclipse.edc.iam.did.spi.resolution.DidResolverRegistry;
+ import org.eclipse.edc.identityhub.protocols.dcp.spi.DcpIssuerTokenVerifier;
+ import org.eclipse.edc.identityhub.verification.IssuerKeyIdRule;
++import org.eclipse.edc.identityhub.verification.SelfIssuedTokenJtiValidationRule;
++import org.eclipse.edc.identityhub.verification.SelfIssuedTokenKeyResolver;
+ import org.eclipse.edc.identityhub.verification.SelfIssuedTokenPrecheck;
+ import org.eclipse.edc.jwt.validation.jti.JtiValidationStore;
++import org.eclipse.edc.keys.spi.KeyParserRegistry;
+ import org.eclipse.edc.runtime.metamodel.annotation.Extension;
+ import org.eclipse.edc.runtime.metamodel.annotation.Inject;
+ import org.eclipse.edc.runtime.metamodel.annotation.Provider;
+@@ -28,7 +31,6 @@ import org.eclipse.edc.spi.system.ServiceExtension;
+ import org.eclipse.edc.spi.system.ServiceExtensionContext;
+ import org.eclipse.edc.token.rules.AudienceValidationRule;
+ import org.eclipse.edc.token.rules.ExpirationIssuedAtValidationRule;
+-import org.eclipse.edc.token.rules.JtiValidationRule;
+ import org.eclipse.edc.token.rules.NotBeforeValidationRule;
+ import org.eclipse.edc.token.spi.TokenValidationRule;
+ import org.eclipse.edc.token.spi.TokenValidationService;
+@@ -48,7 +50,9 @@ public class DcpHolderCoreExtension implements ServiceExtension {
+     @Inject
+     private TokenValidationService tokenValidationService;
+     @Inject
+-    private DidPublicKeyResolver didPublicKeyResolver;
++    private DidResolverRegistry didResolverRegistry;
++    @Inject
++    private KeyParserRegistry keyParserRegistry;
+     @Setting(description = "Activates the JTI check: access tokens can only be used once to guard against replay attacks", defaultValue = "false", key = ACCESSTOKEN_JTI_VALIDATION_ACTIVATE)
+     private boolean activateJtiCheck;
+ 
+@@ -62,7 +66,7 @@ public class DcpHolderCoreExtension implements ServiceExtension {
+             if (jtiValidationStore == null) {
+                 throw new EdcException("JTI validation is activated ('%s') but no JtiValidationStore is provided.".formatted(ACCESSTOKEN_JTI_VALIDATION_ACTIVATE));
+             }
+-            rules.add(new JtiValidationRule(jtiValidationStore, context.getMonitor()));
++            rules.add(new SelfIssuedTokenJtiValidationRule(jtiValidationStore, context.getMonitor()));
+         }
+         rules.addAll(List.of(
+                 new IssuerEqualsSubjectRule(),
+@@ -74,6 +78,7 @@ public class DcpHolderCoreExtension implements ServiceExtension {
+ 
+     @Provider
+     public DcpIssuerTokenVerifier createTokenVerifier() {
++        var resolver = new SelfIssuedTokenKeyResolver(keyParserRegistry, didResolverRegistry);
+         return (participantContext, tokenRepresentation) -> {
+             // the signing key is resolved from the DID named in the 'kid' header, while the sender identifies itself
+             // with the 'iss' claim. Unless the two are tied together, anyone holding a resolvable DID could sign a
+@@ -88,7 +93,7 @@ public class DcpHolderCoreExtension implements ServiceExtension {
+             newRules.add(new IssuerKeyIdRule(precheck.getContent().keyId()));
+             newRules.addAll(rules);
+             newRules.add(new AudienceValidationRule(participantContext.getDid()));
+-            return tokenValidationService.validate(tokenRepresentation.getToken(), didPublicKeyResolver, newRules);
++            return tokenValidationService.validate(tokenRepresentation.getToken(), kid -> resolver.resolveKey(precheck.getContent().issuer(), kid), newRules);
+         };
+     }
+ }
+diff --git a/protocols/dcp/dcp-identityhub/dcp-identityhub-core/src/test/java/org/eclipse/edc/identityhub/protocols/dcp/issuer/DcpHolderCoreExtensionTest.java b/protocols/dcp/dcp-identityhub/dcp-identityhub-core/src/test/java/org/eclipse/edc/identityhub/protocols/dcp/issuer/DcpHolderCoreExtensionTest.java
+index 2e78a16d..cabf7bd1 100644
+--- a/protocols/dcp/dcp-identityhub/dcp-identityhub-core/src/test/java/org/eclipse/edc/identityhub/protocols/dcp/issuer/DcpHolderCoreExtensionTest.java
++++ b/protocols/dcp/dcp-identityhub/dcp-identityhub-core/src/test/java/org/eclipse/edc/identityhub/protocols/dcp/issuer/DcpHolderCoreExtensionTest.java
+@@ -126,15 +126,17 @@ class DcpHolderCoreExtensionTest {
+     // a token without a 'kid' cannot be bound to its issuer at all, so it never reaches validation
+     @Test
+     @DisplayName("TOK-11: a token without a 'kid' header is rejected before validation")
+-    void createTokenVerifier_withoutKid_isRejected(ServiceExtensionContext context, ObjectFactory factory) throws JOSEException {
++    void createTokenVerifier_withoutKid_defersKeySelection(ServiceExtensionContext context, ObjectFactory factory) throws JOSEException {
+         var extension = factory.constructInstance(DcpHolderCoreExtension.class);
+         extension.initialize(context);
+ 
++        when(tokenValidationService.validate(anyString(), any(), anyList()))
++                .thenReturn(Result.success(ClaimToken.Builder.newInstance().build()));
+         var token = signedToken(ISSUER_DID, null);
+         var result = extension.createTokenVerifier().verify(participantContext, TokenRepresentation.Builder.newInstance().token(token).build());
+ 
+-        assertThat(result.failed()).isTrue();
+-        verifyNoInteractions(tokenValidationService);
++        assertThat(result.succeeded()).isTrue();
++        verify(tokenValidationService).validate(anyString(), any(), anyList());
+     }
+ 
+     private TokenValidationRule keyBindingRule(List<TokenValidationRule> rules) {
+@@ -154,6 +156,7 @@ class DcpHolderCoreExtensionTest {
+                 .issuer(issuer)
+                 .subject(issuer)
+                 .audience(HOLDER_DID)
++                .jwtID("test-jti")
+                 .expirationTime(new Date(System.currentTimeMillis() + 60_000))
+                 .build());
+         jwt.sign(new ECDSASigner(key.toECPrivateKey()));
+diff --git a/protocols/dcp/dcp-identityhub/presentation-api/src/main/java/org/eclipse/edc/identityhub/api/PresentationApiExtension.java b/protocols/dcp/dcp-identityhub/presentation-api/src/main/java/org/eclipse/edc/identityhub/api/PresentationApiExtension.java
+index 3c60c311..459fd75e 100644
+--- a/protocols/dcp/dcp-identityhub/presentation-api/src/main/java/org/eclipse/edc/identityhub/api/PresentationApiExtension.java
++++ b/protocols/dcp/dcp-identityhub/presentation-api/src/main/java/org/eclipse/edc/identityhub/api/PresentationApiExtension.java
+@@ -25,6 +25,7 @@ import org.eclipse.edc.jsonld.spi.JsonLd;
+ import org.eclipse.edc.jsonld.spi.JsonLdNamespace;
+ import org.eclipse.edc.runtime.metamodel.annotation.Extension;
+ import org.eclipse.edc.runtime.metamodel.annotation.Inject;
++import org.eclipse.edc.spi.EdcException;
+ import org.eclipse.edc.spi.system.ServiceExtension;
+ import org.eclipse.edc.spi.system.ServiceExtensionContext;
+ import org.eclipse.edc.spi.types.TypeManager;
+@@ -35,9 +36,12 @@ import org.eclipse.edc.web.jersey.providers.jsonld.JsonMapperProvider;
+ import org.eclipse.edc.web.jersey.providers.jsonld.ObjectMapperProvider;
+ import org.eclipse.edc.web.spi.WebService;
+ 
++import java.net.URISyntaxException;
++
+ import static org.eclipse.edc.iam.decentralizedclaims.spi.DcpConstants.DSPACE_DCP_NAMESPACE_V_1_0;
+ import static org.eclipse.edc.iam.decentralizedclaims.spi.model.PresentationQueryMessage.PRESENTATION_QUERY_MESSAGE_TERM;
+ import static org.eclipse.edc.identityhub.api.PresentationApiExtension.NAME;
++import static org.eclipse.edc.identityhub.protocols.dcp.spi.DcpConstants.DCP_SCOPE_V_0_8;
+ import static org.eclipse.edc.identityhub.protocols.dcp.spi.DcpConstants.DCP_SCOPE_V_1_0;
+ import static org.eclipse.edc.identityhub.spi.webcontext.IdentityHubApiContext.CREDENTIALS;
+ import static org.eclipse.edc.spi.constants.CoreConstants.JSON_LD;
+@@ -46,6 +50,8 @@ import static org.eclipse.edc.spi.constants.CoreConstants.JSON_LD;
+ public class PresentationApiExtension implements ServiceExtension {
+ 
+     public static final String NAME = "Presentation API Extension";
++    public static final String DCP_CONTEXT_V_0_8 = "https://w3id.org/tractusx-trust/v0.8";
++    public static final JsonLdNamespace DCP_NAMESPACE_V_0_8 = new JsonLdNamespace(DCP_CONTEXT_V_0_8 + "/");
+ 
+     @Inject
+     private TypeTransformerRegistry typeTransformer;
+@@ -74,7 +80,13 @@ public class PresentationApiExtension implements ServiceExtension {
+         var contextString = CREDENTIALS;
+ 
+         registerValidator(DSPACE_DCP_NAMESPACE_V_1_0);
+-
++        registerValidator(DCP_NAMESPACE_V_0_8);
++        try {
++            jsonLd.registerCachedDocument(DCP_CONTEXT_V_0_8, getClass().getResource("/document/dcp.v0.8.jsonld").toURI());
++        } catch (URISyntaxException e) {
++            throw new EdcException(e);
++        }
++        jsonLd.registerContext(DCP_CONTEXT_V_0_8, DCP_SCOPE_V_0_8);
+ 
+         var controller = new PresentationApiController(validatorRegistry, typeTransformer, credentialResolver, selfIssuedTokenVerifier,
+                 verifiablePresentationService, context.getMonitor().withPrefix("PresentationAPI"), jsonLd);
+@@ -83,6 +95,7 @@ public class PresentationApiExtension implements ServiceExtension {
+         webService.registerResource(contextString, controller);
+ 
+         registerTransformers(DCP_SCOPE_V_1_0, DSPACE_DCP_NAMESPACE_V_1_0);
++        registerTransformers(DCP_SCOPE_V_0_8, DCP_NAMESPACE_V_0_8);
+     }
+ 
+     void registerTransformers(String scope, JsonLdNamespace namespace) {
+diff --git a/protocols/dcp/dcp-identityhub/presentation-api/src/main/java/org/eclipse/edc/identityhub/api/validation/PresentationQueryValidator.java b/protocols/dcp/dcp-identityhub/presentation-api/src/main/java/org/eclipse/edc/identityhub/api/validation/PresentationQueryValidator.java
+index 9812b01a..2f71915d 100644
+--- a/protocols/dcp/dcp-identityhub/presentation-api/src/main/java/org/eclipse/edc/identityhub/api/validation/PresentationQueryValidator.java
++++ b/protocols/dcp/dcp-identityhub/presentation-api/src/main/java/org/eclipse/edc/identityhub/api/validation/PresentationQueryValidator.java
+@@ -25,6 +25,7 @@ import org.eclipse.edc.validator.spi.Validator;
+ 
+ import static org.eclipse.edc.iam.decentralizedclaims.spi.model.PresentationQueryMessage.PRESENTATION_QUERY_MESSAGE_DEFINITION_TERM;
+ import static org.eclipse.edc.iam.decentralizedclaims.spi.model.PresentationQueryMessage.PRESENTATION_QUERY_MESSAGE_SCOPE_TERM;
++import static org.eclipse.edc.identityhub.api.PresentationApiExtension.DCP_NAMESPACE_V_0_8;
+ import static org.eclipse.edc.validator.spi.ValidationResult.failure;
+ import static org.eclipse.edc.validator.spi.ValidationResult.success;
+ import static org.eclipse.edc.validator.spi.Violation.violation;
+@@ -49,12 +50,15 @@ public class PresentationQueryValidator implements Validator<JsonObject> {
+         var scope = input.get(namespace.toIri(PRESENTATION_QUERY_MESSAGE_SCOPE_TERM));
+ 
+         var presentationDef = input.get(namespace.toIri(PRESENTATION_QUERY_MESSAGE_DEFINITION_TERM));
++        // DCP 0.8 permits an empty scope array; DCP 1.0 explicitly rejects it.
++        var emptyLegacyScopes = DCP_NAMESPACE_V_0_8.equals(namespace) && scope instanceof JsonArray array && array.isEmpty();
++        var scopeMissing = isNullObject(scope) && !emptyLegacyScopes;
+ 
+-        if (isNullObject(scope) && isNullObject(presentationDef)) {
++        if (scopeMissing && isNullObject(presentationDef)) {
+             return failure(violation("Must contain either a non-null, non-empty 'scopes' property or a non-empty 'presentationDefinition' property.", null));
+         }
+ 
+-        if (!isNullObject(scope) && !isNullObject(presentationDef)) {
++        if (!scopeMissing && !isNullObject(presentationDef)) {
+             return failure(violation("Must contain either a non-null, non-empty 'scopes' property or a non-empty 'presentationDefinition' property, not both.", null));
+         }
+ 
+diff --git a/protocols/dcp/dcp-identityhub/presentation-api/src/main/java/org/eclipse/edc/identityhub/api/verifiablecredential/PresentationApiController.java b/protocols/dcp/dcp-identityhub/presentation-api/src/main/java/org/eclipse/edc/identityhub/api/verifiablecredential/PresentationApiController.java
+index 08fa8e6b..47361ed6 100644
+--- a/protocols/dcp/dcp-identityhub/presentation-api/src/main/java/org/eclipse/edc/identityhub/api/verifiablecredential/PresentationApiController.java
++++ b/protocols/dcp/dcp-identityhub/presentation-api/src/main/java/org/eclipse/edc/identityhub/api/verifiablecredential/PresentationApiController.java
+@@ -52,6 +52,8 @@ import static jakarta.ws.rs.core.HttpHeaders.AUTHORIZATION;
+ import static jakarta.ws.rs.core.MediaType.APPLICATION_JSON;
+ import static org.eclipse.edc.iam.decentralizedclaims.spi.DcpConstants.DSPACE_DCP_NAMESPACE_V_1_0;
+ import static org.eclipse.edc.iam.decentralizedclaims.spi.model.PresentationQueryMessage.PRESENTATION_QUERY_MESSAGE_TERM;
++import static org.eclipse.edc.identityhub.api.PresentationApiExtension.DCP_NAMESPACE_V_0_8;
++import static org.eclipse.edc.identityhub.protocols.dcp.spi.DcpConstants.DCP_SCOPE_V_0_8;
+ import static org.eclipse.edc.identityhub.protocols.dcp.spi.DcpConstants.DCP_SCOPE_V_1_0;
+ import static org.eclipse.edc.identityhub.verification.AuthenticationFailures.idTokenVerificationFailed;
+ 
+@@ -69,7 +71,8 @@ public class PresentationApiController implements PresentationApi {
+     private final JsonLd jsonLd;
+ 
+     private final Map<JsonLdNamespace, String> protocols = Map.of(
+-            DSPACE_DCP_NAMESPACE_V_1_0, DCP_SCOPE_V_1_0
++            DSPACE_DCP_NAMESPACE_V_1_0, DCP_SCOPE_V_1_0,
++            DCP_NAMESPACE_V_0_8, DCP_SCOPE_V_0_8
+     );
+ 
+     public PresentationApiController(JsonObjectValidatorRegistry validatorRegistry, TypeTransformerRegistry transformerRegistry, CredentialQueryResolver queryResolver,
+@@ -127,10 +130,15 @@ public class PresentationApiController implements PresentationApi {
+ 
+         // package the credentials in a VP and sign
+         var audience = getAudience(token);
+-        var presentationResponse = verifiablePresentationService.createPresentation(participantContextId, credentials.toList(), presentationQuery.getPresentationDefinition(), audience)
+-                .compose(presentation -> protocolRegistry.transform(presentation, JsonObject.class))
++        var presentation = verifiablePresentationService.createPresentation(participantContextId, credentials.toList(), presentationQuery.getPresentationDefinition(), audience);
++        var presentationResponse = presentation.compose(value -> protocolRegistry.transform(value, JsonObject.class))
+                 .compose(json -> jsonLd.compact(json, protocol.scope()))
+                 .orElseThrow(failure -> new EdcException("Error creating VerifiablePresentation: %s".formatted(failure.getFailureDetail())));
++        if (DCP_NAMESPACE_V_0_8.equals(protocol.namespace())) {
++            // The 0.8 context lacks @set, but the protocol still requires an array, including a single VP.
++            presentationResponse = Json.createObjectBuilder(presentationResponse)
++                    .add("presentation", Json.createArrayBuilder(presentation.getContent().getPresentation())).build();
++        }
+         return Response.ok()
+                 .entity(presentationResponse)
+                 .build();
+@@ -151,12 +159,11 @@ public class PresentationApiController implements PresentationApi {
+         if (type == null) {
+             return Result.failure("Missing type in query");
+         }
+-        return protocols.entrySet().stream()
++        var matches = protocols.entrySet().stream()
+                 .filter(p -> type.contains(Json.createValue(p.getKey().toIri(PRESENTATION_QUERY_MESSAGE_TERM))))
+                 .map(entry -> new DcpProtocol(entry.getKey(), entry.getValue()))
+-                .map(Result::success)
+-                .findAny()
+-                .orElseGet(() -> Result.failure("Unsupported protocol"));
++                .toList();
++        return matches.size() == 1 ? Result.success(matches.get(0)) : Result.failure("Expected exactly one supported presentation protocol");
+     }
+ 
+     private Response notImplemented() {
+diff --git a/protocols/dcp/dcp-identityhub/presentation-api/src/main/resources/document/dcp.v0.8.jsonld b/protocols/dcp/dcp-identityhub/presentation-api/src/main/resources/document/dcp.v0.8.jsonld
+new file mode 100644
+index 00000000..68d33163
+--- /dev/null
++++ b/protocols/dcp/dcp-identityhub/presentation-api/src/main/resources/document/dcp.v0.8.jsonld
+@@ -0,0 +1,127 @@
++{
++  "@context": {
++    "@version": 1.1,
++    "@protected": true,
++    "iatp": "https://w3id.org/tractusx-trust/v0.8/",
++    "cred": "https://www.w3.org/2018/credentials/",
++    "xsd": "http://www.w3.org/2001/XMLSchema/",
++    "CredentialContainer": {
++      "@id": "iatp:CredentialContainer",
++      "@context": {
++        "payload": {
++          "@id": "iatp:payload",
++          "@type": "xsd:string"
++        }
++      }
++    },
++    "CredentialMessage": {
++      "@id": "iatp:CredentialMessage",
++      "@context": {
++        "credentials": "iatp:credentials"
++      }
++    },
++    "CredentialObject": {
++      "@id": "iatp:CredentialObject",
++      "@context": {
++        "credentialType": {
++          "@id": "iatp:credentialType",
++          "@container": "@set"
++        },
++        "format": "iatp:format",
++        "offerReason": {
++          "@id": "iatp:offerReason",
++          "@type": "xsd:string"
++        },
++        "bindingMethods": {
++          "@id": "iatp:bindingMethods",
++          "@type": "xsd:string",
++          "@container": "@set"
++        },
++        "cryptographicSuites": {
++          "@id": "iatp:cryptographicSuites",
++          "@type": "xsd:string",
++          "@container": "@set"
++        },
++        "issuancePolicy": "iatp:issuancePolicy"
++      }
++    },
++    "CredentialOfferMessage": {
++      "@id": "iatp:CredentialOfferMessage",
++      "@context": {
++        "credentialIssuer": "cred:issuer",
++        "credentials": "iatp:credentials"
++      }
++    },
++    "CredentialRequestMessage": {
++      "@id": "iatp:CredentialRequestMessage",
++      "@context": {
++        "format": "iatp:format",
++        "type": "@type"
++      }
++    },
++    "CredentialService": "iatp:CredentialService",
++    "CredentialStatus": {
++      "@id": "iatp:CredentialStatus",
++      "@context": {
++        "requestId": {
++          "@id": "iatp:requestId",
++          "@type": "@id"
++        },
++        "status": {
++          "@id": "iatp:status",
++          "@type": "xsd:string"
++        }
++      }
++    },
++    "IssuerMetadata": {
++      "@id": "iatp:IssuerMetadata",
++      "@context": {
++        "credentialIssuer": "cred:issuer",
++        "credentialsSupported": {
++          "@id": "iatp:credentialsSupported",
++          "@container": "@set"
++        }
++      }
++    },
++    "PresentationQueryMessage": {
++      "@id": "iatp:PresentationQueryMessage",
++      "@context": {
++        "presentationDefinition": {
++          "@id": "iatp:presentationDefinition",
++          "@type": "@json"
++        },
++        "scope": {
++          "@id": "iatp:scope",
++          "@type": "xsd:string",
++          "@container": "@set"
++        }
++      }
++    },
++    "PresentationResponseMessage": {
++      "@id": "iatp:PresentationResponseMessage",
++      "@context": {
++        "presentation": {
++          "@id": "iatp:presentation",
++          "@type": "@json"
++        },
++        "presentationSubmission": {
++          "@id": "iatp:presentationSubmission",
++          "@type": "@json"
++        }
++      }
++    },
++    "credentials": {
++      "@id": "iatp:credentials",
++      "@container": "@set"
++    },
++    "credentialSubject": {
++      "@id": "iatp:credentialSubject",
++      "@type": "cred:credentialSubject"
++    },
++    "format": {
++      "@id": "iatp:format",
++      "@type": "xsd:string"
++    },
++    "type": "@type"
++  }
++}
+diff --git a/protocols/dcp/dcp-identityhub/presentation-api/src/test/java/org/eclipse/edc/identityservice/api/v1/PresentationApiControllerTest.java b/protocols/dcp/dcp-identityhub/presentation-api/src/test/java/org/eclipse/edc/identityservice/api/v1/PresentationApiControllerTest.java
+index 3d1672a0..72c8655e 100644
+--- a/protocols/dcp/dcp-identityhub/presentation-api/src/test/java/org/eclipse/edc/identityservice/api/v1/PresentationApiControllerTest.java
++++ b/protocols/dcp/dcp-identityhub/presentation-api/src/test/java/org/eclipse/edc/identityservice/api/v1/PresentationApiControllerTest.java
+@@ -59,6 +59,7 @@ import static org.assertj.core.api.Assertions.assertThat;
+ import static org.assertj.core.api.Assertions.assertThatThrownBy;
+ import static org.eclipse.edc.iam.decentralizedclaims.spi.DcpConstants.DSPACE_DCP_NAMESPACE_V_1_0;
+ import static org.eclipse.edc.iam.decentralizedclaims.spi.model.PresentationQueryMessage.PRESENTATION_QUERY_MESSAGE_TERM;
++import static org.eclipse.edc.identityhub.protocols.dcp.spi.DcpConstants.DCP_SCOPE_V_0_8;
+ import static org.eclipse.edc.identityhub.protocols.dcp.spi.DcpConstants.DCP_SCOPE_V_1_0;
+ import static org.eclipse.edc.identityhub.verifiablecredentials.testfixtures.VerifiableCredentialTestUtil.buildSignedJwt;
+ import static org.eclipse.edc.identityhub.verifiablecredentials.testfixtures.VerifiableCredentialTestUtil.generateEcKey;
+@@ -86,6 +87,19 @@ class PresentationApiControllerTest extends RestControllerTestBase {
+     private final VerifiablePresentationService generator = mock();
+     private final JsonLd jsonLd = mock();
+ 
++    @Test
++    void query_ambiguousProtocol_shouldReturn400() {
++        when(selfIssuedTokenVerifier.verify(anyString(), anyString())).thenReturn(Result.success(List.of("test-scope1")));
++        var query = createObjectBuilder().add(JsonLdKeywords.TYPE, Json.createArrayBuilder()
++                .add(DSPACE_DCP_NAMESPACE_V_1_0.toIri(PRESENTATION_QUERY_MESSAGE_TERM))
++                .add("https://w3id.org/tractusx-trust/v0.8/PresentationQueryMessage")).build();
++        when(jsonLd.expand(any(JsonObject.class))).thenReturn(Result.success(query));
++
++        assertThatThrownBy(() -> controller().queryPresentation(PARTICIPANT_ID, query, generateAuthToken()))
++                .isInstanceOf(InvalidRequestException.class);
++        verifyNoInteractions(queryResolver, generator, validatorRegistryMock);
++    }
++
+     @Test
+     void query_tokenNotPresent_shouldReturn401() {
+         assertThatThrownBy(() -> controller().queryPresentation(PARTICIPANT_ID, createObjectBuilder().build(), null))
+@@ -210,13 +224,13 @@ class PresentationApiControllerTest extends RestControllerTestBase {
+         when(typeTransformerRegistry.transform(isA(JsonObject.class), eq(PresentationQueryMessage.class))).thenReturn(Result.success(presentationQueryBuilder));
+         when(selfIssuedTokenVerifier.verify(anyString(), anyString())).thenReturn(Result.success(List.of("test-scope1")));
+         when(queryResolver.query(anyString(), any(), eq(List.of("test-scope1")))).thenReturn(QueryResult.success(Stream.empty()));
+-        when(jsonLd.compact(isA(JsonObject.class), eq(scope))).thenReturn(Result.success(Json.createObjectBuilder().build()));
++        when(jsonLd.compact(isA(JsonObject.class), eq(scope))).thenAnswer(call -> Result.success(call.getArgument(0)));
+         var pres = PresentationResponseMessage.Builder.newinstance().presentation(List.of(generateAuthToken()))
+ 
+                 .presentationSubmission(new PresentationSubmission("id", "def-id", List.of(new InputDescriptorMapping("id", "ldp_vp", "$.verifiableCredentials[0]"))))
+                 .build();
+ 
+-        var jsonResponse = Json.createObjectBuilder().build();
++        var jsonResponse = Json.createObjectBuilder().add("presentation", Json.createArrayBuilder(pres.getPresentation())).build();
+         when(typeTransformerRegistry.transform(eq(pres), eq(JsonObject.class))).thenReturn(Result.success(jsonResponse));
+         when(generator.createPresentation(anyString(), anyList(), any(), any())).thenReturn(Result.success(pres));
+ 
+@@ -258,7 +272,8 @@ class PresentationApiControllerTest extends RestControllerTestBase {
+ 
+         @Override
+         public Stream<? extends Arguments> provideArguments(ExtensionContext context) throws Exception {
+-            return Stream.of(Arguments.of(DSPACE_DCP_NAMESPACE_V_1_0, DCP_SCOPE_V_1_0));
++            return Stream.of(Arguments.of(DSPACE_DCP_NAMESPACE_V_1_0, DCP_SCOPE_V_1_0),
++                    Arguments.of(new JsonLdNamespace("https://w3id.org/tractusx-trust/v0.8/"), DCP_SCOPE_V_0_8));
+         }
+     }
+-}
+\ No newline at end of file
++}
+diff --git a/protocols/dcp/dcp-identityhub/presentation-api/src/test/java/org/eclipse/edc/identityservice/api/v1/PresentationProtocolTest.java b/protocols/dcp/dcp-identityhub/presentation-api/src/test/java/org/eclipse/edc/identityservice/api/v1/PresentationProtocolTest.java
+new file mode 100644
+index 00000000..99aca3dc
+--- /dev/null
++++ b/protocols/dcp/dcp-identityhub/presentation-api/src/test/java/org/eclipse/edc/identityservice/api/v1/PresentationProtocolTest.java
+@@ -0,0 +1,168 @@
++/*
++ *  Copyright (c) 2026 Contributors to the Eclipse Foundation and VDBP
++ *
++ *  This program and the accompanying materials are made available under the
++ *  terms of the Apache License, Version 2.0 which is available at
++ *  https://www.apache.org/licenses/LICENSE-2.0
++ *
++ *  SPDX-License-Identifier: Apache-2.0
++ *
++ *  Contributors:
++ *       VDBP - initial implementation
++ *
++ */
++
++package org.eclipse.edc.identityservice.api.v1;
++
++import com.nimbusds.jwt.JWTClaimsSet;
++import jakarta.json.Json;
++import jakarta.json.JsonObject;
++import org.eclipse.edc.iam.decentralizedclaims.spi.model.PresentationQueryMessage;
++import org.eclipse.edc.iam.decentralizedclaims.spi.model.PresentationResponseMessage;
++import org.eclipse.edc.identityhub.api.PresentationApiExtension;
++import org.eclipse.edc.identityhub.api.validation.PresentationQueryValidator;
++import org.eclipse.edc.identityhub.api.verifiablecredential.PresentationApiController;
++import org.eclipse.edc.identityhub.spi.verifiablecredentials.generator.VerifiablePresentationService;
++import org.eclipse.edc.identityhub.spi.verifiablecredentials.resolution.CredentialQueryResolver;
++import org.eclipse.edc.identityhub.spi.verifiablecredentials.resolution.QueryResult;
++import org.eclipse.edc.identityhub.spi.verification.SelfIssuedTokenVerifier;
++import org.eclipse.edc.jsonld.TitaniumJsonLd;
++import org.eclipse.edc.jsonld.spi.JsonLd;
++import org.eclipse.edc.jsonld.util.JacksonJsonLd;
++import org.eclipse.edc.junit.annotations.ApiTest;
++import org.eclipse.edc.junit.extensions.DependencyInjectionExtension;
++import org.eclipse.edc.spi.result.Result;
++import org.eclipse.edc.spi.system.ServiceExtensionContext;
++import org.eclipse.edc.spi.types.TypeManager;
++import org.eclipse.edc.transform.TypeTransformerRegistryImpl;
++import org.eclipse.edc.transform.spi.TypeTransformerRegistry;
++import org.eclipse.edc.validator.spi.JsonObjectValidatorRegistry;
++import org.eclipse.edc.web.spi.WebService;
++import org.eclipse.edc.web.spi.exception.ValidationFailureException;
++import org.junit.jupiter.api.BeforeEach;
++import org.junit.jupiter.api.extension.ExtendWith;
++import org.junit.jupiter.params.ParameterizedTest;
++import org.junit.jupiter.params.provider.CsvSource;
++import org.junit.jupiter.params.provider.ValueSource;
++import org.mockito.ArgumentCaptor;
++
++import java.util.HashMap;
++import java.util.List;
++import java.util.Map;
++import java.util.stream.IntStream;
++import java.util.stream.Stream;
++
++import static org.assertj.core.api.Assertions.assertThat;
++import static org.assertj.core.api.Assertions.assertThatThrownBy;
++import static org.eclipse.edc.iam.decentralizedclaims.spi.DcpConstants.DSPACE_DCP_V_1_0_CONTEXT;
++import static org.eclipse.edc.identityhub.protocols.dcp.spi.DcpConstants.DCP_SCOPE_V_1_0;
++import static org.eclipse.edc.identityhub.verifiablecredentials.testfixtures.VerifiableCredentialTestUtil.buildSignedJwt;
++import static org.eclipse.edc.identityhub.verifiablecredentials.testfixtures.VerifiableCredentialTestUtil.generateEcKey;
++import static org.eclipse.edc.spi.constants.CoreConstants.JSON_LD;
++import static org.mockito.ArgumentMatchers.any;
++import static org.mockito.ArgumentMatchers.anyString;
++import static org.mockito.ArgumentMatchers.eq;
++import static org.mockito.Mockito.doAnswer;
++import static org.mockito.Mockito.mock;
++import static org.mockito.Mockito.verify;
++import static org.mockito.Mockito.when;
++
++@ExtendWith(DependencyInjectionExtension.class)
++@ApiTest
++class PresentationProtocolTest {
++    private static final List<String> SCOPES = List.of("org.eclipse.tractusx.vc.type:MembershipCredential:read", "org.eclipse.tractusx.vc.type:BpnCredential:read");
++    private final JsonLd jsonLd = new TitaniumJsonLd(mock());
++    private final CredentialQueryResolver resolver = mock();
++    private final WebService web = mock();
++    private final VerifiablePresentationService generator = mock();
++
++    @BeforeEach
++    void setup(ServiceExtensionContext context) throws Exception {
++        var types = mock(TypeManager.class);
++        when(types.getMapper(JSON_LD)).thenReturn(JacksonJsonLd.createObjectMapper());
++        context.registerService(TypeManager.class, types);
++        context.registerService(JsonLd.class, jsonLd);
++        context.registerService(TypeTransformerRegistry.class, new TypeTransformerRegistryImpl(context.getMonitor()));
++        context.registerService(CredentialQueryResolver.class, resolver);
++        context.registerService(WebService.class, web);
++        var validators = mock(JsonObjectValidatorRegistry.class);
++        Map<String, PresentationQueryValidator> registered = new HashMap<>();
++        doAnswer(call -> {
++            registered.put(call.getArgument(0), call.getArgument(1));
++            return null;
++        }).when(validators).register(anyString(), any());
++        when(validators.validate(anyString(), any())).thenAnswer(call -> registered.get(call.<String>getArgument(0)).validate(call.getArgument(1)));
++        context.registerService(JsonObjectValidatorRegistry.class, validators);
++        var verifier = mock(SelfIssuedTokenVerifier.class);
++        when(verifier.verify(anyString(), eq("holder"))).thenReturn(Result.success(SCOPES));
++        context.registerService(SelfIssuedTokenVerifier.class, verifier);
++        when(generator.createPresentation(eq("holder"), any(), any(), eq("did:web:verifier")))
++                .thenReturn(Result.success(PresentationResponseMessage.Builder.newinstance().presentation(List.of("signed-vp")).build()));
++        context.registerService(VerifiablePresentationService.class, generator);
++        when(resolver.query(eq("holder"), any(), eq(SCOPES))).thenAnswer(call -> {
++            assertThat(call.<PresentationQueryMessage>getArgument(1).getScopes()).containsExactlyElementsOf(SCOPES);
++            return QueryResult.success(Stream.empty());
++        });
++        jsonLd.registerCachedDocument(DSPACE_DCP_V_1_0_CONTEXT, getClass().getResource("/document/dcp.v1.0.jsonld").toURI());
++        jsonLd.registerContext(DSPACE_DCP_V_1_0_CONTEXT, DCP_SCOPE_V_1_0);
++    }
++
++    @ParameterizedTest
++    @CsvSource({"https://w3id.org/tractusx-trust/v0.8,0", "https://w3id.org/tractusx-trust/v0.8,1",
++            "https://w3id.org/tractusx-trust/v0.8,2", DSPACE_DCP_V_1_0_CONTEXT + ",1"})
++    void query_usesRegisteredProtocol(String contextUrl, int count, PresentationApiExtension extension, ServiceExtensionContext context) {
++        var controller = initialize(extension, context);
++        var presentations = IntStream.range(0, count).<Object>mapToObj(i -> "signed-vp-" + i).toList();
++        when(generator.createPresentation(eq("holder"), any(), any(), eq("did:web:verifier")))
++                .thenReturn(Result.success(PresentationResponseMessage.Builder.newinstance().presentation(presentations).build()));
++        var request = Json.createObjectBuilder().add("@context", contextUrl).add("@type", "PresentationQueryMessage")
++                .add("scope", Json.createArrayBuilder(SCOPES)).build();
++
++        var response = controller.queryPresentation("holder", request, token());
++
++        assertThat(response.getStatus()).isEqualTo(200);
++        var body = (JsonObject) response.getEntity();
++        assertThat(body.getJsonArray("presentation")).isEqualTo(Json.createArrayBuilder(presentations).build());
++        assertThat(body.getString("type")).isEqualTo("PresentationResponseMessage");
++        assertThat(body.get("@context").toString()).contains(contextUrl);
++    }
++
++    @ParameterizedTest
++    @ValueSource(strings = {"https://w3id.org/tractusx-trust/v0.8", DSPACE_DCP_V_1_0_CONTEXT})
++    void query_emptyScopeDependsOnProtocol(String contextUrl, PresentationApiExtension extension, ServiceExtensionContext context) {
++        var controller = initialize(extension, context);
++        var request = Json.createObjectBuilder().add("@context", contextUrl).add("@type", "PresentationQueryMessage")
++                .add("scope", Json.createArrayBuilder()).build();
++        when(resolver.query(eq("holder"), any(), eq(SCOPES))).thenAnswer(call -> {
++            assertThat(call.<PresentationQueryMessage>getArgument(1).getScopes()).isEmpty();
++            return QueryResult.success(Stream.empty());
++        });
++        if (contextUrl.contains("v0.8")) {
++            assertThat(controller.queryPresentation("holder", request, token()).getStatus()).isEqualTo(200);
++        } else {
++            assertThatThrownBy(() -> controller.queryPresentation("holder", request, token())).isInstanceOf(ValidationFailureException.class);
++        }
++    }
++
++    @ParameterizedTest
++    @ValueSource(strings = {"https://w3id.org/tractusx-trust/v0.8", DSPACE_DCP_V_1_0_CONTEXT})
++    void query_rejectsBothScopeAndDefinition(String contextUrl, PresentationApiExtension extension, ServiceExtensionContext context) {
++        var controller = initialize(extension, context);
++        var request = Json.createObjectBuilder().add("@context", contextUrl).add("@type", "PresentationQueryMessage")
++                .add("scope", Json.createArrayBuilder(SCOPES))
++                .add("presentationDefinition", Json.createObjectBuilder().add("id", "definition")).build();
++
++        assertThatThrownBy(() -> controller.queryPresentation("holder", request, token())).isInstanceOf(ValidationFailureException.class);
++    }
++
++    private PresentationApiController initialize(PresentationApiExtension extension, ServiceExtensionContext context) {
++        extension.initialize(context);
++        var controller = ArgumentCaptor.forClass(PresentationApiController.class);
++        verify(web).registerResource(eq("credentials"), controller.capture());
++        return controller.getValue();
++    }
++
++    private String token() {
++        return "Bearer " + buildSignedJwt(new JWTClaimsSet.Builder().issuer("did:web:verifier").build(), generateEcKey(null)).serialize();
++    }
++}
+diff --git a/protocols/dcp/dcp-identityhub/presentation-api/src/test/resources/document/dcp.v1.0.jsonld b/protocols/dcp/dcp-identityhub/presentation-api/src/test/resources/document/dcp.v1.0.jsonld
+new file mode 100644
+index 00000000..f7858e34
+--- /dev/null
++++ b/protocols/dcp/dcp-identityhub/presentation-api/src/test/resources/document/dcp.v1.0.jsonld
+@@ -0,0 +1,137 @@
++{
++  "@context": {
++    "@version": 1.1,
++    "@protected": true,
++    "dcp": "https://w3id.org/dspace-dcp/v1.0/",
++    "cred": "https://www.w3.org/2018/credentials/",
++    "xsd": "http://www.w3.org/2001/XMLSchema#",
++    "id": "@id",
++    "type": "@type",
++    "CredentialContainer": {
++      "@id": "dcp:CredentialContainer",
++      "@context": {
++        "payload": {
++          "@id": "dcp:payload",
++          "@type": "xsd:string"
++        }
++      }
++    },
++    "CredentialMessage": {
++      "@id": "dcp:CredentialMessage",
++      "@context": {
++        "credentials": {
++          "@id": "dcp:credentials",
++          "@container": "@set"
++        },
++        "requestId": {
++          "@id": "dcp:requestId",
++          "@type": "@id"
++        }
++      }
++    },
++    "CredentialObject": {
++      "@id": "dcp:CredentialObject",
++      "@context": {
++        "credentialType": {
++          "@id": "dcp:credentialType",
++          "@container": "@set"
++        },
++        "offerReason": {
++          "@id": "dcp:offerReason",
++          "@type": "xsd:string"
++        },
++        "bindingMethods": {
++          "@id": "dcp:bindingMethods",
++          "@type": "xsd:string",
++          "@container": "@set"
++        },
++        "profiles": {
++          "@id": "dcp:profiles",
++          "@type": "xsd:string",
++          "@container": "@set"
++        },
++        "issuancePolicy": {
++          "@id": "dcp:issuancePolicy",
++          "@type": "@json"
++        }
++      }
++    },
++    "CredentialOfferMessage": {
++      "@id": "dcp:CredentialOfferMessage",
++      "@context": {
++        "credentialIssuer": "cred:issuer",
++        "credentials": {
++          "@id": "dcp:credentials",
++          "@container": "@set"
++        }
++      }
++    },
++    "CredentialRequestMessage": {
++      "@id": "dcp:CredentialRequestMessage",
++      "@context": {
++        "format": "dcp:format",
++        "credentialType": {
++          "@id": "dcp:credentialType",
++          "@type": "@vocab",
++          "@container": "@set"
++        }
++      }
++    },
++    "CredentialService": "dcp:CredentialService",
++    "CredentialStatus": {
++      "@id": "dcp:CredentialStatus",
++      "@context": {
++        "requestId": {
++          "@id": "dcp:requestId",
++          "@type": "@id"
++        },
++        "status": {
++          "@id": "dcp:status",
++          "@type": "@vocab"
++        },
++        "RECEIVED": "dcp:RECEIVED",
++        "REJECTED": "dcp:REJECTED",
++        "ISSUED": "dcp:ISSUED"
++      }
++    },
++    "IssuerMetadata": {
++      "@id": "dcp:IssuerMetadata",
++      "@context": {
++        "credentialIssuer": "cred:issuer",
++        "credentialsSupported": {
++          "@id": "dcp:credentialsSupported",
++          "@container": "@set"
++        }
++      }
++    },
++    "IssuerService": "dcp:IssuerService",
++    "PresentationQueryMessage": {
++      "@id": "dcp:PresentationQueryMessage",
++      "@context": {
++        "presentationDefinition": {
++          "@id": "dcp:presentationDefinition",
++          "@type": "@json"
++        },
++        "scope": {
++          "@id": "dcp:scope",
++          "@type": "xsd:string",
++          "@container": "@set"
++        }
++      }
++    },
++    "PresentationResponseMessage": {
++      "@id": "dcp:PresentationResponseMessage",
++      "@context": {
++        "presentation": {
++          "@id": "dcp:presentation",
++          "@container": "@set",
++          "@type": "@json"
++        },
++        "presentationSubmission": {
++          "@id": "dcp:presentationSubmission",
++          "@type": "@json"
++        }
++      }
++    }
++  }
++}
+\ No newline at end of file
+diff --git a/protocols/dcp/dcp-identityhub/storage-api/src/test/java/org/eclipse/edc/identityhub/api/storage/StorageApiControllerTest.java b/protocols/dcp/dcp-identityhub/storage-api/src/test/java/org/eclipse/edc/identityhub/api/storage/StorageApiControllerTest.java
+index e9acf0b9..5b1710f5 100644
+--- a/protocols/dcp/dcp-identityhub/storage-api/src/test/java/org/eclipse/edc/identityhub/api/storage/StorageApiControllerTest.java
++++ b/protocols/dcp/dcp-identityhub/storage-api/src/test/java/org/eclipse/edc/identityhub/api/storage/StorageApiControllerTest.java
+@@ -39,6 +39,9 @@ import org.junit.jupiter.api.BeforeEach;
+ import org.junit.jupiter.api.Disabled;
+ import org.junit.jupiter.api.DisplayName;
+ import org.junit.jupiter.api.Test;
++import org.junit.jupiter.params.ParameterizedTest;
++import org.junit.jupiter.params.provider.NullSource;
++import org.junit.jupiter.params.provider.ValueSource;
+ 
+ import java.sql.Date;
+ import java.time.Instant;
+@@ -90,12 +93,14 @@ class StorageApiControllerTest extends RestControllerTestBase {
+         when(credentialWriter.checkOrigin(anyString(), anyString(), anyString())).thenReturn(ServiceResult.success());
+     }
+ 
+-    @Test
++    @ParameterizedTest
++    @NullSource
++    @ValueSource(strings = ISSUER_DID + "#key1")
+     @DisplayName("CS-STOR-01: a valid CredentialMessage is accepted and the credential written")
+-    void storeCredential_success_expect200() {
++    void storeCredential_success_expect200(String kid) {
+         when(validatorRegistry.validate(any(), any())).thenReturn(ValidationResult.success());
+         baseRequest()
+-                .header("Authorization", "Bearer " + generateJwt())
++                .header("Authorization", "Bearer " + generateJwt(kid))
+                 .body(credentialMessageJson())
+                 .post()
+                 .then()
+diff --git a/protocols/dcp/dcp-issuer/dcp-issuer-core/src/main/java/org/eclipse/edc/identityhub/protocols/dcp/issuer/DcpHolderTokenVerifierImpl.java b/protocols/dcp/dcp-issuer/dcp-issuer-core/src/main/java/org/eclipse/edc/identityhub/protocols/dcp/issuer/DcpHolderTokenVerifierImpl.java
+index 483ffe71..8335cc26 100644
+--- a/protocols/dcp/dcp-issuer/dcp-issuer-core/src/main/java/org/eclipse/edc/identityhub/protocols/dcp/issuer/DcpHolderTokenVerifierImpl.java
++++ b/protocols/dcp/dcp-issuer/dcp-issuer-core/src/main/java/org/eclipse/edc/identityhub/protocols/dcp/issuer/DcpHolderTokenVerifierImpl.java
+@@ -18,10 +18,10 @@ import org.eclipse.edc.identityhub.protocols.dcp.spi.DcpHolderTokenVerifier;
+ import org.eclipse.edc.identityhub.protocols.dcp.spi.model.DcpRequestContext;
+ import org.eclipse.edc.identityhub.spi.participantcontext.model.IdentityHubParticipantContext;
+ import org.eclipse.edc.identityhub.verification.IssuerKeyIdRule;
++import org.eclipse.edc.identityhub.verification.SelfIssuedTokenKeyResolver;
+ import org.eclipse.edc.identityhub.verification.SelfIssuedTokenPrecheck;
+ import org.eclipse.edc.issuerservice.spi.holder.model.Holder;
+ import org.eclipse.edc.issuerservice.spi.holder.store.HolderStore;
+-import org.eclipse.edc.keys.spi.PublicKeyResolver;
+ import org.eclipse.edc.spi.iam.TokenRepresentation;
+ import org.eclipse.edc.spi.query.Criterion;
+ import org.eclipse.edc.spi.query.QuerySpec;
+@@ -44,11 +44,11 @@ public class DcpHolderTokenVerifierImpl implements DcpHolderTokenVerifier {
+ 
+     private final TokenValidationRulesRegistry rulesRegistry;
+     private final TokenValidationService tokenValidationService;
+-    private final PublicKeyResolver publicKeyResolver;
++    private final SelfIssuedTokenKeyResolver publicKeyResolver;
+     private final HolderStore store;
+     private final boolean allowAnonymous;
+ 
+-    public DcpHolderTokenVerifierImpl(TokenValidationRulesRegistry rulesRegistry, TokenValidationService tokenValidationService, PublicKeyResolver publicKeyResolver, HolderStore store, boolean allowAnonymous) {
++    public DcpHolderTokenVerifierImpl(TokenValidationRulesRegistry rulesRegistry, TokenValidationService tokenValidationService, SelfIssuedTokenKeyResolver publicKeyResolver, HolderStore store, boolean allowAnonymous) {
+         this.rulesRegistry = rulesRegistry;
+         this.tokenValidationService = tokenValidationService;
+         this.publicKeyResolver = publicKeyResolver;
+@@ -73,7 +73,7 @@ public class DcpHolderTokenVerifierImpl implements DcpHolderTokenVerifier {
+                     if (holder.isEmpty() && !allowAnonymous) {
+                         return ServiceResult.unauthorized("Participant not found");
+                     }
+-                    return validateToken(issuerContext, tokenRepresentation, unverified.keyId())
++                    return validateToken(issuerContext, tokenRepresentation, unverified)
+                             // an anonymous Holder is only recorded once it has proven control over its DID
+                             .compose(accessToken -> holder.map(ServiceResult::success)
+                                     .orElseGet(() -> createAnonymousHolder(participantContextId, unverified.issuer()))
+@@ -106,13 +106,13 @@ public class DcpHolderTokenVerifierImpl implements DcpHolderTokenVerifier {
+         return ServiceResult.from(store.create(newHolder)).map(u -> newHolder);
+     }
+ 
+-    private ServiceResult<String> validateToken(IdentityHubParticipantContext issuerContext, TokenRepresentation token, String kid) {
++    private ServiceResult<String> validateToken(IdentityHubParticipantContext issuerContext, TokenRepresentation token, SelfIssuedTokenPrecheck.UnverifiedToken unverified) {
+ 
+         var newRules = new ArrayList<TokenValidationRule>();
+-        newRules.add(new IssuerKeyIdRule(kid));
++        newRules.add(new IssuerKeyIdRule(unverified.keyId()));
+         newRules.addAll(rulesRegistry.getRules(DCP_ISSUER_SELF_ISSUED_TOKEN_CONTEXT));
+         newRules.add(new AudienceValidationRule(issuerContext.getDid()));
+-        var res = tokenValidationService.validate(token.getToken(), publicKeyResolver, newRules);
++        var res = tokenValidationService.validate(token.getToken(), kid -> publicKeyResolver.resolveKey(unverified.issuer(), kid), newRules);
+         if (res.failed()) {
+             return ServiceResult.unauthorized("Token validation failed: " + res.getFailureDetail());
+         }
+diff --git a/protocols/dcp/dcp-issuer/dcp-issuer-core/src/main/java/org/eclipse/edc/identityhub/protocols/dcp/issuer/DcpIssuerCoreExtension.java b/protocols/dcp/dcp-issuer/dcp-issuer-core/src/main/java/org/eclipse/edc/identityhub/protocols/dcp/issuer/DcpIssuerCoreExtension.java
+index 05d701e5..ce8657a8 100644
+--- a/protocols/dcp/dcp-issuer/dcp-issuer-core/src/main/java/org/eclipse/edc/identityhub/protocols/dcp/issuer/DcpIssuerCoreExtension.java
++++ b/protocols/dcp/dcp-issuer/dcp-issuer-core/src/main/java/org/eclipse/edc/identityhub/protocols/dcp/issuer/DcpIssuerCoreExtension.java
+@@ -16,7 +16,6 @@ package org.eclipse.edc.identityhub.protocols.dcp.issuer;
+ 
+ import okhttp3.OkHttpClient;
+ import org.eclipse.edc.iam.decentralizedclaims.spi.CredentialServiceUrlResolver;
+-import org.eclipse.edc.iam.did.spi.resolution.DidPublicKeyResolver;
+ import org.eclipse.edc.iam.did.spi.resolution.DidResolverRegistry;
+ import org.eclipse.edc.identityhub.protocols.dcp.issuer.spi.DcpIssuerMetadataService;
+ import org.eclipse.edc.identityhub.protocols.dcp.issuer.spi.DcpIssuerService;
+@@ -24,6 +23,8 @@ import org.eclipse.edc.identityhub.protocols.dcp.spi.DcpHolderTokenVerifier;
+ import org.eclipse.edc.identityhub.protocols.dcp.spi.DcpProfileRegistry;
+ import org.eclipse.edc.identityhub.spi.authentication.ParticipantSecureTokenService;
+ import org.eclipse.edc.identityhub.statemachine.IdentityHubStateMachineConfiguration;
++import org.eclipse.edc.identityhub.verification.SelfIssuedTokenJtiValidationRule;
++import org.eclipse.edc.identityhub.verification.SelfIssuedTokenKeyResolver;
+ import org.eclipse.edc.issuerservice.spi.holder.store.HolderStore;
+ import org.eclipse.edc.issuerservice.spi.issuance.attestation.AttestationPipeline;
+ import org.eclipse.edc.issuerservice.spi.issuance.credentialdefinition.CredentialDefinitionService;
+@@ -32,6 +33,7 @@ import org.eclipse.edc.issuerservice.spi.issuance.events.IssuanceObservable;
+ import org.eclipse.edc.issuerservice.spi.issuance.process.store.IssuanceProcessStore;
+ import org.eclipse.edc.issuerservice.spi.issuance.rule.CredentialRuleDefinitionEvaluator;
+ import org.eclipse.edc.jwt.validation.jti.JtiValidationStore;
++import org.eclipse.edc.keys.spi.KeyParserRegistry;
+ import org.eclipse.edc.participantcontext.spi.store.ParticipantContextStore;
+ import org.eclipse.edc.runtime.metamodel.annotation.Configuration;
+ import org.eclipse.edc.runtime.metamodel.annotation.Extension;
+@@ -46,7 +48,6 @@ import org.eclipse.edc.spi.system.ServiceExtensionContext;
+ import org.eclipse.edc.spi.telemetry.Telemetry;
+ import org.eclipse.edc.spi.types.TypeManager;
+ import org.eclipse.edc.token.rules.ExpirationIssuedAtValidationRule;
+-import org.eclipse.edc.token.rules.JtiValidationRule;
+ import org.eclipse.edc.token.rules.NotBeforeValidationRule;
+ import org.eclipse.edc.token.spi.TokenValidationRulesRegistry;
+ import org.eclipse.edc.token.spi.TokenValidationService;
+@@ -78,8 +79,6 @@ public class DcpIssuerCoreExtension implements ServiceExtension {
+     @Inject
+     private HolderStore holderStore;
+ 
+-    @Inject
+-    private DidPublicKeyResolver didPublicKeyResolver;
+ 
+     @Inject
+     private CredentialDefinitionService credentialDefinitionService;
+@@ -119,6 +118,8 @@ public class DcpIssuerCoreExtension implements ServiceExtension {
+ 
+     @Inject
+     private DidResolverRegistry didResolverRegistry;
++    @Inject
++    private KeyParserRegistry keyParserRegistry;
+ 
+     @Inject
+     private DcpProfileRegistry profileRegistry;
+@@ -143,7 +144,7 @@ public class DcpIssuerCoreExtension implements ServiceExtension {
+             if (jtiValidationStore == null) {
+                 throw new EdcException("JTI validation is activated ('%s') but no JtiValidationStore is provided.".formatted(ACCESSTOKEN_JTI_VALIDATION_ACTIVATE));
+             }
+-            rulesRegistry.addRule(DCP_ISSUER_SELF_ISSUED_TOKEN_CONTEXT, new JtiValidationRule(jtiValidationStore, context.getMonitor()));
++            rulesRegistry.addRule(DCP_ISSUER_SELF_ISSUED_TOKEN_CONTEXT, new SelfIssuedTokenJtiValidationRule(jtiValidationStore, context.getMonitor()));
+         }
+ 
+     }
+@@ -155,7 +156,7 @@ public class DcpIssuerCoreExtension implements ServiceExtension {
+ 
+     @Provider
+     public DcpHolderTokenVerifier createTokenVerifier() {
+-        return new DcpHolderTokenVerifierImpl(rulesRegistry, tokenValidationService, didPublicKeyResolver, holderStore, allowAnonymousCredentialRequest);
++        return new DcpHolderTokenVerifierImpl(rulesRegistry, tokenValidationService, new SelfIssuedTokenKeyResolver(keyParserRegistry, didResolverRegistry), holderStore, allowAnonymousCredentialRequest);
+     }
+ 
+     @Provider
+diff --git a/protocols/dcp/dcp-issuer/dcp-issuer-core/src/test/java/org/eclipse/edc/identityhub/protocols/dcp/issuer/DcpHolderTokenVerifierImplTest.java b/protocols/dcp/dcp-issuer/dcp-issuer-core/src/test/java/org/eclipse/edc/identityhub/protocols/dcp/issuer/DcpHolderTokenVerifierImplTest.java
+index e2b08d09..fb987584 100644
+--- a/protocols/dcp/dcp-issuer/dcp-issuer-core/src/test/java/org/eclipse/edc/identityhub/protocols/dcp/issuer/DcpHolderTokenVerifierImplTest.java
++++ b/protocols/dcp/dcp-issuer/dcp-issuer-core/src/test/java/org/eclipse/edc/identityhub/protocols/dcp/issuer/DcpHolderTokenVerifierImplTest.java
+@@ -24,9 +24,9 @@ import com.nimbusds.jwt.SignedJWT;
+ import org.eclipse.edc.identityhub.protocols.dcp.spi.DcpHolderTokenVerifier;
+ import org.eclipse.edc.identityhub.spi.participantcontext.model.IdentityHubParticipantContext;
+ import org.eclipse.edc.identityhub.verification.IssuerKeyIdRule;
++import org.eclipse.edc.identityhub.verification.SelfIssuedTokenKeyResolver;
+ import org.eclipse.edc.issuerservice.spi.holder.model.Holder;
+ import org.eclipse.edc.issuerservice.spi.holder.store.HolderStore;
+-import org.eclipse.edc.keys.spi.PublicKeyResolver;
+ import org.eclipse.edc.spi.iam.ClaimToken;
+ import org.eclipse.edc.spi.iam.TokenRepresentation;
+ import org.eclipse.edc.spi.result.Result;
+@@ -66,7 +66,7 @@ public class DcpHolderTokenVerifierImplTest {
+ 
+     private final TokenValidationRulesRegistry rulesRegistry = mock();
+     private final TokenValidationService tokenValidationService = mock();
+-    private final PublicKeyResolver publicKeyResolver = mock();
++    private final SelfIssuedTokenKeyResolver publicKeyResolver = mock();
+ 
+     private final HolderStore holderStore = mock();
+     private final DcpHolderTokenVerifier dcpIssuerTokenVerifier = new DcpHolderTokenVerifierImpl(rulesRegistry, tokenValidationService, publicKeyResolver, holderStore, false);
+@@ -159,10 +159,9 @@ public class DcpHolderTokenVerifierImplTest {
+ 
+     }
+ 
+-    // TOK-11: token without a 'kid' JOSE header -> unauthorized
+-    @DisplayName("TOK-11: a token without a 'kid' JOSE header is rejected as unauthorized")
++    @DisplayName("TOK-11: absent kid defers to DID verification method selection")
+     @Test
+-    void verify_missingKidHeader_returnsUnauthorized() throws JOSEException {
++    void verify_missingKidHeader_defersKeySelection() throws JOSEException {
+         // signed JWT whose JOSE header does NOT carry a 'kid' (the generateJwt() fixture always sets one)
+         var claims = new JWTClaimsSet.Builder()
+                 .audience(ISSUER_DID)
+@@ -174,13 +173,15 @@ public class DcpHolderTokenVerifierImplTest {
+         var jwt = new SignedJWT(new JWSHeader.Builder(JWSAlgorithm.ES256).build(), claims);
+         jwt.sign(new ECDSASigner(PARTICIPANT_KEY.toECPrivateKey()));
+         var token = TokenRepresentation.Builder.newInstance().token(jwt.serialize()).build();
++        when(tokenValidationService.validate(anyString(), any(), anyList()))
++                .thenReturn(Result.success(ClaimToken.Builder.newInstance().build()));
+ 
+         when(holderStore.query(any())).thenReturn(StoreResult.success(List.of(createHolder(PARTICIPANT_DID, PARTICIPANT_DID, PARTICIPANT_DID))));
+ 
+         var result = dcpIssuerTokenVerifier.verify(participantContext, token);
+ 
+-        assertThat(result).isFailed().detail().isEqualTo("Kid not present");
+-        verifyNoInteractions(tokenValidationService);
++        assertThat(result).isSucceeded();
++        Mockito.verify(tokenValidationService).validate(anyString(), any(), anyList());
+     }
+ 
+     // B2.10: holder exists but is registered under a DIFFERENT participant context than the issuer context being addressed -> must be rejected

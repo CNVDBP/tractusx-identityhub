@@ -39,11 +39,28 @@ val txScmConnection: String by project
 val txWebsiteUrl: String by project
 val txScmUrl: String by project
 val edcVersion = libs.versions.edc
+val tokenPatchVersion = libs.versions.identityhub.token.patch.get()
 
 allprojects {
     apply(plugin = "org.eclipse.edc.edc-build")
 
+    repositories.exclusiveContent {
+        forRepository {
+            repositories.maven { url = uri(rootProject.file(".gradle/identityhub-token-patch-repository")) }
+        }
+        filter { includeVersionByRegex("org.eclipse.edc", ".*", ".*-cx0149\\..*") }
+    }
+
     configurations.configureEach {
+        // Keep the shared precheck and all three SI verifier callers on the same reviewed patch.
+        resolutionStrategy.force(
+            "org.eclipse.edc:common-lib:$tokenPatchVersion",
+            "org.eclipse.edc:common-core:$tokenPatchVersion",
+            "org.eclipse.edc:identity-hub-core:$tokenPatchVersion",
+            "org.eclipse.edc:dcp-issuer-core:$tokenPatchVersion",
+            "org.eclipse.edc:dcp-identityhub-core:$tokenPatchVersion",
+            "org.eclipse.edc:presentation-api:$tokenPatchVersion"
+        )
         // core-lib pulls in jnats' LTS provider, which duplicates the runtime's BouncyCastle classes.
         exclude(group = "org.bouncycastle", module = "bcprov-lts8on")
     }
