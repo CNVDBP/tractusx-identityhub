@@ -20,7 +20,7 @@ import org.gradle.api.plugins.JavaPluginExtension
 import org.gradle.api.tasks.compile.JavaCompile
 import org.gradle.plugins.signing.Sign
 
-val patchedModules = setOf("common-lib", "common-core", "identity-hub-core", "dcp-issuer-core", "dcp-identityhub-core")
+val patchedModules = setOf("common-lib", "common-core", "identity-hub-core", "dcp-issuer-core", "dcp-identityhub-core", "presentation-api")
 
 gradle.beforeProject {
     plugins.withId("java") {

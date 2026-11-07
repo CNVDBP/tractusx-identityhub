@@ -23,7 +23,8 @@ import tomllib
 BASE = "f3bbaf90468472e646f0929b72d42d33f7641fc6"
 MODULES = [":core:lib:common-lib", ":core:common-core", ":core:identity-hub-core",
            ":protocols:dcp:dcp-issuer:dcp-issuer-core",
-           ":protocols:dcp:dcp-identityhub:dcp-identityhub-core"]
+           ":protocols:dcp:dcp-identityhub:dcp-identityhub-core",
+           ":protocols:dcp:dcp-identityhub:presentation-api"]
 
 
 def main():

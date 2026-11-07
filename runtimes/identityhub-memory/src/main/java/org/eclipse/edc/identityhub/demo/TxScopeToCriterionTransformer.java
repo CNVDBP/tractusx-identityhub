@@ -47,6 +47,7 @@ public class TxScopeToCriterionTransformer implements ScopeToCriterionTransforme
     public static final String TYPE_OPERAND = "verifiableCredential.credential.type";
     public static final String ID_OPERAND = "verifiableCredential.credential.id";
     public static final String DCP_ID_ALIAS_LITERAL = "org.eclipse.dspace.dcp.vc.id";
+    public static final String LEGACY_ID_ALIAS_LITERAL = "org.eclipse.tractusx.vc.id";
     public static final String DEFAULT_ALIAS_LITERAL = "org.eclipse.tractusx.vc.type";
     // EDC 0.17.0 replaced the upstream DCP scope alias org.eclipse.edc.vc.type with this one.
     // Accepted by default alongside the Tractus-X alias so external 0.17.0 connectors interoperate.
@@ -89,11 +90,29 @@ public class TxScopeToCriterionTransformer implements ScopeToCriterionTransforme
             return success(List.of(new Criterion(ID_OPERAND, "=", credentialId)));
         }
 
+        var legacyIdPrefix = LEGACY_ID_ALIAS_LITERAL + SCOPE_SEPARATOR;
+        if (scope != null && scope.regionMatches(true, 0, legacyIdPrefix, 0, legacyIdPrefix.length())) {
+            var operationSeparator = scope.lastIndexOf(SCOPE_SEPARATOR);
+            if (operationSeparator < legacyIdPrefix.length() || !allowedOperations.contains(scope.substring(operationSeparator + 1))) {
+                return failure("Legacy ID scope requires a credential ID and a read operation");
+            }
+            // Only the final colon separates the operation; the ID may itself be a URN or URL.
+            var credentialId = scope.substring(legacyIdPrefix.length(), operationSeparator);
+            if (credentialId.isBlank()) {
+                return failure("Scope string cannot be converted: credential ID was blank");
+            }
+            return success(credentialId.equals("*") ? List.of() : List.of(new Criterion(ID_OPERAND, "=", credentialId)));
+        }
+
         var tokens = tokenize(scope);
         if (tokens.failed()) {
             return failure("Scope string cannot be converted: %s".formatted(tokens.getFailureDetail()));
         }
         var credentialType = tokens.getContent()[1];
+        if (DEFAULT_ALIAS_LITERAL.equalsIgnoreCase(tokens.getContent()[0]) && credentialType.equals("*")) {
+            // CredentialQueryResolver always adds tenant, usage and validity filters.
+            return success(List.of());
+        }
         return success(List.of(new Criterion(TYPE_OPERAND, CONTAINS_OPERATOR, credentialType)));
     }
 

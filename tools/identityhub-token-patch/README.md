@@ -1,4 +1,4 @@
-# RC5 SI token patch
+# RC5 SI token and presentation patch
 
 This fork carries a source patch against Eclipse IdentityHub commit
 `f3bbaf90468472e646f0929b72d42d33f7641fc6` (RC5). It fixes the shared SI token
@@ -12,6 +12,25 @@ validators' existing five-second clock allowance. Local access-token validation,
 registered-holder checks and pending-delivery ownership checks still run before
 external DID resolution. Other public-key uses, including VC and status-list
 signature verification, retain their existing resolver.
+
+The presentation endpoint also accepts DCP 0.8.1 messages on the existing URL.
+Its legacy JSON-LD namespace uses the same authentication and credential query
+services, and responds with the matching context and a presentation array.
+Empty legacy scopes return only credentials allowed by the access token; DCP 1.0
+continues to reject empty scopes. Ambiguous dual-version message types fail.
+
+Both Holder runtimes support `org.eclipse.tractusx.vc.id:<id>:read` (including
+URN/URL IDs) and the legacy type/ID `*` wildcard. The final operation must allow
+reading (`read`, `all`, or the existing `*` extension); `write` is rejected.
+Wildcard queries still intersect the token grant and retain tenant, usage and
+validity filters. Native DCP 1.0 IDs and configured type aliases retain their
+existing interpretation. This does not enable legacy issuance or storage.
+
+The bundled `dcp.v0.8.jsonld` is the unmodified context from the
+[DCP 0.8.1 source](https://github.com/eclipse-dataspace-dcp/decentralized-claims-protocol/blob/2ef77ee4c08713e557581ab507acc618c738d170/specifications/context.json),
+Copyright Eclipse Foundation, licensed under
+[CC-BY-4.0](https://github.com/eclipse-dataspace-dcp/decentralized-claims-protocol/blob/2ef77ee4c08713e557581ab507acc618c738d170/LICENSE).
+It is cached locally; supporting it does not enable arbitrary remote contexts.
 
 ## Build
 
@@ -30,17 +49,17 @@ pass `--offline` to the Python script and Gradle. The script accepts either the
 clean pinned source or exactly this already-applied patch; unexpected source
 changes stop the build.
 
-Only `common-lib`, `common-core`, `identity-hub-core`, `dcp-issuer-core` and
-`dcp-identityhub-core` receive the distinct version pinned in
+Only `common-lib`, `common-core`, `identity-hub-core`, `dcp-issuer-core`,
+`dcp-identityhub-core` and `presentation-api` receive the distinct version pinned in
 `gradle/libs.versions.toml`. They are published into the ignored project-local
 `.gradle/identityhub-token-patch-repository`. Original RC5 artifacts and the
-user's Maven local repository are not overwritten. The five modules are selected
+user's Maven local repository are not overwritten. The six modules are selected
 together; do not mix the relaxed precheck with the original key resolver.
 Their bytecode and published JVM requirement remain Java 17, matching RC5,
 even when the build runs on a newer JDK.
 
 The existing CI setup builds the same pinned source patch. Its affected unit,
-signature, Storage API and Checkstyle tests run in the existing verification
+signature, presentation, Storage API and Checkstyle tests run in the existing verification
 jobs. This patch is maintained in this fork and is not an upstream release.
 
 ## Deployment compatibility

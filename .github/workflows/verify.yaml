@@ -41,7 +41,8 @@ jobs:
             :core:common-core:checkstyleMain :core:identity-hub-core:checkstyleMain :core:identity-hub-core:checkstyleTest \
             :protocols:dcp:dcp-issuer:dcp-issuer-core:checkstyleMain :protocols:dcp:dcp-issuer:dcp-issuer-core:checkstyleTest \
             :protocols:dcp:dcp-identityhub:dcp-identityhub-core:checkstyleMain :protocols:dcp:dcp-identityhub:dcp-identityhub-core:checkstyleTest \
-            :protocols:dcp:dcp-identityhub:storage-api:checkstyleTest
+            :protocols:dcp:dcp-identityhub:storage-api:checkstyleTest \
+            :protocols:dcp:dcp-identityhub:presentation-api:checkstyleMain :protocols:dcp:dcp-identityhub:presentation-api:checkstyleTest
 
   OpenAPI-Specs-Up-To-Date:
     runs-on: ubuntu-latest
@@ -80,7 +81,8 @@ jobs:
         working-directory: .gradle/identityhub-token-patch-source
         run: |
           ./gradlew :core:lib:common-lib:test :core:common-core:test :core:identity-hub-core:test \
-            :protocols:dcp:dcp-issuer:dcp-issuer-core:test :protocols:dcp:dcp-identityhub:dcp-identityhub-core:test
+            :protocols:dcp:dcp-issuer:dcp-issuer-core:test :protocols:dcp:dcp-identityhub:dcp-identityhub-core:test \
+            :protocols:dcp:dcp-identityhub:presentation-api:test
 
   Integration-Tests:
     runs-on: ubuntu-latest
@@ -96,6 +98,7 @@ jobs:
         run: |
           ./gradlew :core:identity-hub-core:test --tests '*SelfIssuedTokenVerifierImplComponentTest' \
             :protocols:dcp:dcp-identityhub:storage-api:test --tests '*StorageApiControllerTest' \
+            :protocols:dcp:dcp-identityhub:presentation-api:test \
             -DincludeTags="ComponentTest,ApiTest"
 
   Postgresql-Integration-Tests:

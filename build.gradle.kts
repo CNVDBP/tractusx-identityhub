@@ -58,7 +58,8 @@ allprojects {
             "org.eclipse.edc:common-core:$tokenPatchVersion",
             "org.eclipse.edc:identity-hub-core:$tokenPatchVersion",
             "org.eclipse.edc:dcp-issuer-core:$tokenPatchVersion",
-            "org.eclipse.edc:dcp-identityhub-core:$tokenPatchVersion"
+            "org.eclipse.edc:dcp-identityhub-core:$tokenPatchVersion",
+            "org.eclipse.edc:presentation-api:$tokenPatchVersion"
         )
         // core-lib pulls in jnats' LTS provider, which duplicates the runtime's BouncyCastle classes.
         exclude(group = "org.bouncycastle", module = "bcprov-lts8on")

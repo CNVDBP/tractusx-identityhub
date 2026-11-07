@@ -745,6 +745,661 @@ index 2e78a16d..cabf7bd1 100644
                  .expirationTime(new Date(System.currentTimeMillis() + 60_000))
                  .build());
          jwt.sign(new ECDSASigner(key.toECPrivateKey()));
+diff --git a/protocols/dcp/dcp-identityhub/presentation-api/src/main/java/org/eclipse/edc/identityhub/api/PresentationApiExtension.java b/protocols/dcp/dcp-identityhub/presentation-api/src/main/java/org/eclipse/edc/identityhub/api/PresentationApiExtension.java
+index 3c60c311..459fd75e 100644
+--- a/protocols/dcp/dcp-identityhub/presentation-api/src/main/java/org/eclipse/edc/identityhub/api/PresentationApiExtension.java
++++ b/protocols/dcp/dcp-identityhub/presentation-api/src/main/java/org/eclipse/edc/identityhub/api/PresentationApiExtension.java
+@@ -25,6 +25,7 @@ import org.eclipse.edc.jsonld.spi.JsonLd;
+ import org.eclipse.edc.jsonld.spi.JsonLdNamespace;
+ import org.eclipse.edc.runtime.metamodel.annotation.Extension;
+ import org.eclipse.edc.runtime.metamodel.annotation.Inject;
++import org.eclipse.edc.spi.EdcException;
+ import org.eclipse.edc.spi.system.ServiceExtension;
+ import org.eclipse.edc.spi.system.ServiceExtensionContext;
+ import org.eclipse.edc.spi.types.TypeManager;
+@@ -35,9 +36,12 @@ import org.eclipse.edc.web.jersey.providers.jsonld.JsonMapperProvider;
+ import org.eclipse.edc.web.jersey.providers.jsonld.ObjectMapperProvider;
+ import org.eclipse.edc.web.spi.WebService;
+ 
++import java.net.URISyntaxException;
++
+ import static org.eclipse.edc.iam.decentralizedclaims.spi.DcpConstants.DSPACE_DCP_NAMESPACE_V_1_0;
+ import static org.eclipse.edc.iam.decentralizedclaims.spi.model.PresentationQueryMessage.PRESENTATION_QUERY_MESSAGE_TERM;
+ import static org.eclipse.edc.identityhub.api.PresentationApiExtension.NAME;
++import static org.eclipse.edc.identityhub.protocols.dcp.spi.DcpConstants.DCP_SCOPE_V_0_8;
+ import static org.eclipse.edc.identityhub.protocols.dcp.spi.DcpConstants.DCP_SCOPE_V_1_0;
+ import static org.eclipse.edc.identityhub.spi.webcontext.IdentityHubApiContext.CREDENTIALS;
+ import static org.eclipse.edc.spi.constants.CoreConstants.JSON_LD;
+@@ -46,6 +50,8 @@ import static org.eclipse.edc.spi.constants.CoreConstants.JSON_LD;
+ public class PresentationApiExtension implements ServiceExtension {
+ 
+     public static final String NAME = "Presentation API Extension";
++    public static final String DCP_CONTEXT_V_0_8 = "https://w3id.org/tractusx-trust/v0.8";
++    public static final JsonLdNamespace DCP_NAMESPACE_V_0_8 = new JsonLdNamespace(DCP_CONTEXT_V_0_8 + "/");
+ 
+     @Inject
+     private TypeTransformerRegistry typeTransformer;
+@@ -74,7 +80,13 @@ public class PresentationApiExtension implements ServiceExtension {
+         var contextString = CREDENTIALS;
+ 
+         registerValidator(DSPACE_DCP_NAMESPACE_V_1_0);
+-
++        registerValidator(DCP_NAMESPACE_V_0_8);
++        try {
++            jsonLd.registerCachedDocument(DCP_CONTEXT_V_0_8, getClass().getResource("/document/dcp.v0.8.jsonld").toURI());
++        } catch (URISyntaxException e) {
++            throw new EdcException(e);
++        }
++        jsonLd.registerContext(DCP_CONTEXT_V_0_8, DCP_SCOPE_V_0_8);
+ 
+         var controller = new PresentationApiController(validatorRegistry, typeTransformer, credentialResolver, selfIssuedTokenVerifier,
+                 verifiablePresentationService, context.getMonitor().withPrefix("PresentationAPI"), jsonLd);
+@@ -83,6 +95,7 @@ public class PresentationApiExtension implements ServiceExtension {
+         webService.registerResource(contextString, controller);
+ 
+         registerTransformers(DCP_SCOPE_V_1_0, DSPACE_DCP_NAMESPACE_V_1_0);
++        registerTransformers(DCP_SCOPE_V_0_8, DCP_NAMESPACE_V_0_8);
+     }
+ 
+     void registerTransformers(String scope, JsonLdNamespace namespace) {
+diff --git a/protocols/dcp/dcp-identityhub/presentation-api/src/main/java/org/eclipse/edc/identityhub/api/validation/PresentationQueryValidator.java b/protocols/dcp/dcp-identityhub/presentation-api/src/main/java/org/eclipse/edc/identityhub/api/validation/PresentationQueryValidator.java
+index 9812b01a..2f71915d 100644
+--- a/protocols/dcp/dcp-identityhub/presentation-api/src/main/java/org/eclipse/edc/identityhub/api/validation/PresentationQueryValidator.java
++++ b/protocols/dcp/dcp-identityhub/presentation-api/src/main/java/org/eclipse/edc/identityhub/api/validation/PresentationQueryValidator.java
+@@ -25,6 +25,7 @@ import org.eclipse.edc.validator.spi.Validator;
+ 
+ import static org.eclipse.edc.iam.decentralizedclaims.spi.model.PresentationQueryMessage.PRESENTATION_QUERY_MESSAGE_DEFINITION_TERM;
+ import static org.eclipse.edc.iam.decentralizedclaims.spi.model.PresentationQueryMessage.PRESENTATION_QUERY_MESSAGE_SCOPE_TERM;
++import static org.eclipse.edc.identityhub.api.PresentationApiExtension.DCP_NAMESPACE_V_0_8;
+ import static org.eclipse.edc.validator.spi.ValidationResult.failure;
+ import static org.eclipse.edc.validator.spi.ValidationResult.success;
+ import static org.eclipse.edc.validator.spi.Violation.violation;
+@@ -49,12 +50,15 @@ public class PresentationQueryValidator implements Validator<JsonObject> {
+         var scope = input.get(namespace.toIri(PRESENTATION_QUERY_MESSAGE_SCOPE_TERM));
+ 
+         var presentationDef = input.get(namespace.toIri(PRESENTATION_QUERY_MESSAGE_DEFINITION_TERM));
++        // DCP 0.8 permits an empty scope array; DCP 1.0 explicitly rejects it.
++        var emptyLegacyScopes = DCP_NAMESPACE_V_0_8.equals(namespace) && scope instanceof JsonArray array && array.isEmpty();
++        var scopeMissing = isNullObject(scope) && !emptyLegacyScopes;
+ 
+-        if (isNullObject(scope) && isNullObject(presentationDef)) {
++        if (scopeMissing && isNullObject(presentationDef)) {
+             return failure(violation("Must contain either a non-null, non-empty 'scopes' property or a non-empty 'presentationDefinition' property.", null));
+         }
+ 
+-        if (!isNullObject(scope) && !isNullObject(presentationDef)) {
++        if (!scopeMissing && !isNullObject(presentationDef)) {
+             return failure(violation("Must contain either a non-null, non-empty 'scopes' property or a non-empty 'presentationDefinition' property, not both.", null));
+         }
+ 
+diff --git a/protocols/dcp/dcp-identityhub/presentation-api/src/main/java/org/eclipse/edc/identityhub/api/verifiablecredential/PresentationApiController.java b/protocols/dcp/dcp-identityhub/presentation-api/src/main/java/org/eclipse/edc/identityhub/api/verifiablecredential/PresentationApiController.java
+index 08fa8e6b..47361ed6 100644
+--- a/protocols/dcp/dcp-identityhub/presentation-api/src/main/java/org/eclipse/edc/identityhub/api/verifiablecredential/PresentationApiController.java
++++ b/protocols/dcp/dcp-identityhub/presentation-api/src/main/java/org/eclipse/edc/identityhub/api/verifiablecredential/PresentationApiController.java
+@@ -52,6 +52,8 @@ import static jakarta.ws.rs.core.HttpHeaders.AUTHORIZATION;
+ import static jakarta.ws.rs.core.MediaType.APPLICATION_JSON;
+ import static org.eclipse.edc.iam.decentralizedclaims.spi.DcpConstants.DSPACE_DCP_NAMESPACE_V_1_0;
+ import static org.eclipse.edc.iam.decentralizedclaims.spi.model.PresentationQueryMessage.PRESENTATION_QUERY_MESSAGE_TERM;
++import static org.eclipse.edc.identityhub.api.PresentationApiExtension.DCP_NAMESPACE_V_0_8;
++import static org.eclipse.edc.identityhub.protocols.dcp.spi.DcpConstants.DCP_SCOPE_V_0_8;
+ import static org.eclipse.edc.identityhub.protocols.dcp.spi.DcpConstants.DCP_SCOPE_V_1_0;
+ import static org.eclipse.edc.identityhub.verification.AuthenticationFailures.idTokenVerificationFailed;
+ 
+@@ -69,7 +71,8 @@ public class PresentationApiController implements PresentationApi {
+     private final JsonLd jsonLd;
+ 
+     private final Map<JsonLdNamespace, String> protocols = Map.of(
+-            DSPACE_DCP_NAMESPACE_V_1_0, DCP_SCOPE_V_1_0
++            DSPACE_DCP_NAMESPACE_V_1_0, DCP_SCOPE_V_1_0,
++            DCP_NAMESPACE_V_0_8, DCP_SCOPE_V_0_8
+     );
+ 
+     public PresentationApiController(JsonObjectValidatorRegistry validatorRegistry, TypeTransformerRegistry transformerRegistry, CredentialQueryResolver queryResolver,
+@@ -127,10 +130,15 @@ public class PresentationApiController implements PresentationApi {
+ 
+         // package the credentials in a VP and sign
+         var audience = getAudience(token);
+-        var presentationResponse = verifiablePresentationService.createPresentation(participantContextId, credentials.toList(), presentationQuery.getPresentationDefinition(), audience)
+-                .compose(presentation -> protocolRegistry.transform(presentation, JsonObject.class))
++        var presentation = verifiablePresentationService.createPresentation(participantContextId, credentials.toList(), presentationQuery.getPresentationDefinition(), audience);
++        var presentationResponse = presentation.compose(value -> protocolRegistry.transform(value, JsonObject.class))
+                 .compose(json -> jsonLd.compact(json, protocol.scope()))
+                 .orElseThrow(failure -> new EdcException("Error creating VerifiablePresentation: %s".formatted(failure.getFailureDetail())));
++        if (DCP_NAMESPACE_V_0_8.equals(protocol.namespace())) {
++            // The 0.8 context lacks @set, but the protocol still requires an array, including a single VP.
++            presentationResponse = Json.createObjectBuilder(presentationResponse)
++                    .add("presentation", Json.createArrayBuilder(presentation.getContent().getPresentation())).build();
++        }
+         return Response.ok()
+                 .entity(presentationResponse)
+                 .build();
+@@ -151,12 +159,11 @@ public class PresentationApiController implements PresentationApi {
+         if (type == null) {
+             return Result.failure("Missing type in query");
+         }
+-        return protocols.entrySet().stream()
++        var matches = protocols.entrySet().stream()
+                 .filter(p -> type.contains(Json.createValue(p.getKey().toIri(PRESENTATION_QUERY_MESSAGE_TERM))))
+                 .map(entry -> new DcpProtocol(entry.getKey(), entry.getValue()))
+-                .map(Result::success)
+-                .findAny()
+-                .orElseGet(() -> Result.failure("Unsupported protocol"));
++                .toList();
++        return matches.size() == 1 ? Result.success(matches.get(0)) : Result.failure("Expected exactly one supported presentation protocol");
+     }
+ 
+     private Response notImplemented() {
+diff --git a/protocols/dcp/dcp-identityhub/presentation-api/src/main/resources/document/dcp.v0.8.jsonld b/protocols/dcp/dcp-identityhub/presentation-api/src/main/resources/document/dcp.v0.8.jsonld
+new file mode 100644
+index 00000000..68d33163
+--- /dev/null
++++ b/protocols/dcp/dcp-identityhub/presentation-api/src/main/resources/document/dcp.v0.8.jsonld
+@@ -0,0 +1,127 @@
++{
++  "@context": {
++    "@version": 1.1,
++    "@protected": true,
++    "iatp": "https://w3id.org/tractusx-trust/v0.8/",
++    "cred": "https://www.w3.org/2018/credentials/",
++    "xsd": "http://www.w3.org/2001/XMLSchema/",
++    "CredentialContainer": {
++      "@id": "iatp:CredentialContainer",
++      "@context": {
++        "payload": {
++          "@id": "iatp:payload",
++          "@type": "xsd:string"
++        }
++      }
++    },
++    "CredentialMessage": {
++      "@id": "iatp:CredentialMessage",
++      "@context": {
++        "credentials": "iatp:credentials"
++      }
++    },
++    "CredentialObject": {
++      "@id": "iatp:CredentialObject",
++      "@context": {
++        "credentialType": {
++          "@id": "iatp:credentialType",
++          "@container": "@set"
++        },
++        "format": "iatp:format",
++        "offerReason": {
++          "@id": "iatp:offerReason",
++          "@type": "xsd:string"
++        },
++        "bindingMethods": {
++          "@id": "iatp:bindingMethods",
++          "@type": "xsd:string",
++          "@container": "@set"
++        },
++        "cryptographicSuites": {
++          "@id": "iatp:cryptographicSuites",
++          "@type": "xsd:string",
++          "@container": "@set"
++        },
++        "issuancePolicy": "iatp:issuancePolicy"
++      }
++    },
++    "CredentialOfferMessage": {
++      "@id": "iatp:CredentialOfferMessage",
++      "@context": {
++        "credentialIssuer": "cred:issuer",
++        "credentials": "iatp:credentials"
++      }
++    },
++    "CredentialRequestMessage": {
++      "@id": "iatp:CredentialRequestMessage",
++      "@context": {
++        "format": "iatp:format",
++        "type": "@type"
++      }
++    },
++    "CredentialService": "iatp:CredentialService",
++    "CredentialStatus": {
++      "@id": "iatp:CredentialStatus",
++      "@context": {
++        "requestId": {
++          "@id": "iatp:requestId",
++          "@type": "@id"
++        },
++        "status": {
++          "@id": "iatp:status",
++          "@type": "xsd:string"
++        }
++      }
++    },
++    "IssuerMetadata": {
++      "@id": "iatp:IssuerMetadata",
++      "@context": {
++        "credentialIssuer": "cred:issuer",
++        "credentialsSupported": {
++          "@id": "iatp:credentialsSupported",
++          "@container": "@set"
++        }
++      }
++    },
++    "PresentationQueryMessage": {
++      "@id": "iatp:PresentationQueryMessage",
++      "@context": {
++        "presentationDefinition": {
++          "@id": "iatp:presentationDefinition",
++          "@type": "@json"
++        },
++        "scope": {
++          "@id": "iatp:scope",
++          "@type": "xsd:string",
++          "@container": "@set"
++        }
++      }
++    },
++    "PresentationResponseMessage": {
++      "@id": "iatp:PresentationResponseMessage",
++      "@context": {
++        "presentation": {
++          "@id": "iatp:presentation",
++          "@type": "@json"
++        },
++        "presentationSubmission": {
++          "@id": "iatp:presentationSubmission",
++          "@type": "@json"
++        }
++      }
++    },
++    "credentials": {
++      "@id": "iatp:credentials",
++      "@container": "@set"
++    },
++    "credentialSubject": {
++      "@id": "iatp:credentialSubject",
++      "@type": "cred:credentialSubject"
++    },
++    "format": {
++      "@id": "iatp:format",
++      "@type": "xsd:string"
++    },
++    "type": "@type"
++  }
++}
+diff --git a/protocols/dcp/dcp-identityhub/presentation-api/src/test/java/org/eclipse/edc/identityservice/api/v1/PresentationApiControllerTest.java b/protocols/dcp/dcp-identityhub/presentation-api/src/test/java/org/eclipse/edc/identityservice/api/v1/PresentationApiControllerTest.java
+index 3d1672a0..72c8655e 100644
+--- a/protocols/dcp/dcp-identityhub/presentation-api/src/test/java/org/eclipse/edc/identityservice/api/v1/PresentationApiControllerTest.java
++++ b/protocols/dcp/dcp-identityhub/presentation-api/src/test/java/org/eclipse/edc/identityservice/api/v1/PresentationApiControllerTest.java
+@@ -59,6 +59,7 @@ import static org.assertj.core.api.Assertions.assertThat;
+ import static org.assertj.core.api.Assertions.assertThatThrownBy;
+ import static org.eclipse.edc.iam.decentralizedclaims.spi.DcpConstants.DSPACE_DCP_NAMESPACE_V_1_0;
+ import static org.eclipse.edc.iam.decentralizedclaims.spi.model.PresentationQueryMessage.PRESENTATION_QUERY_MESSAGE_TERM;
++import static org.eclipse.edc.identityhub.protocols.dcp.spi.DcpConstants.DCP_SCOPE_V_0_8;
+ import static org.eclipse.edc.identityhub.protocols.dcp.spi.DcpConstants.DCP_SCOPE_V_1_0;
+ import static org.eclipse.edc.identityhub.verifiablecredentials.testfixtures.VerifiableCredentialTestUtil.buildSignedJwt;
+ import static org.eclipse.edc.identityhub.verifiablecredentials.testfixtures.VerifiableCredentialTestUtil.generateEcKey;
+@@ -86,6 +87,19 @@ class PresentationApiControllerTest extends RestControllerTestBase {
+     private final VerifiablePresentationService generator = mock();
+     private final JsonLd jsonLd = mock();
+ 
++    @Test
++    void query_ambiguousProtocol_shouldReturn400() {
++        when(selfIssuedTokenVerifier.verify(anyString(), anyString())).thenReturn(Result.success(List.of("test-scope1")));
++        var query = createObjectBuilder().add(JsonLdKeywords.TYPE, Json.createArrayBuilder()
++                .add(DSPACE_DCP_NAMESPACE_V_1_0.toIri(PRESENTATION_QUERY_MESSAGE_TERM))
++                .add("https://w3id.org/tractusx-trust/v0.8/PresentationQueryMessage")).build();
++        when(jsonLd.expand(any(JsonObject.class))).thenReturn(Result.success(query));
++
++        assertThatThrownBy(() -> controller().queryPresentation(PARTICIPANT_ID, query, generateAuthToken()))
++                .isInstanceOf(InvalidRequestException.class);
++        verifyNoInteractions(queryResolver, generator, validatorRegistryMock);
++    }
++
+     @Test
+     void query_tokenNotPresent_shouldReturn401() {
+         assertThatThrownBy(() -> controller().queryPresentation(PARTICIPANT_ID, createObjectBuilder().build(), null))
+@@ -210,13 +224,13 @@ class PresentationApiControllerTest extends RestControllerTestBase {
+         when(typeTransformerRegistry.transform(isA(JsonObject.class), eq(PresentationQueryMessage.class))).thenReturn(Result.success(presentationQueryBuilder));
+         when(selfIssuedTokenVerifier.verify(anyString(), anyString())).thenReturn(Result.success(List.of("test-scope1")));
+         when(queryResolver.query(anyString(), any(), eq(List.of("test-scope1")))).thenReturn(QueryResult.success(Stream.empty()));
+-        when(jsonLd.compact(isA(JsonObject.class), eq(scope))).thenReturn(Result.success(Json.createObjectBuilder().build()));
++        when(jsonLd.compact(isA(JsonObject.class), eq(scope))).thenAnswer(call -> Result.success(call.getArgument(0)));
+         var pres = PresentationResponseMessage.Builder.newinstance().presentation(List.of(generateAuthToken()))
+ 
+                 .presentationSubmission(new PresentationSubmission("id", "def-id", List.of(new InputDescriptorMapping("id", "ldp_vp", "$.verifiableCredentials[0]"))))
+                 .build();
+ 
+-        var jsonResponse = Json.createObjectBuilder().build();
++        var jsonResponse = Json.createObjectBuilder().add("presentation", Json.createArrayBuilder(pres.getPresentation())).build();
+         when(typeTransformerRegistry.transform(eq(pres), eq(JsonObject.class))).thenReturn(Result.success(jsonResponse));
+         when(generator.createPresentation(anyString(), anyList(), any(), any())).thenReturn(Result.success(pres));
+ 
+@@ -258,7 +272,8 @@ class PresentationApiControllerTest extends RestControllerTestBase {
+ 
+         @Override
+         public Stream<? extends Arguments> provideArguments(ExtensionContext context) throws Exception {
+-            return Stream.of(Arguments.of(DSPACE_DCP_NAMESPACE_V_1_0, DCP_SCOPE_V_1_0));
++            return Stream.of(Arguments.of(DSPACE_DCP_NAMESPACE_V_1_0, DCP_SCOPE_V_1_0),
++                    Arguments.of(new JsonLdNamespace("https://w3id.org/tractusx-trust/v0.8/"), DCP_SCOPE_V_0_8));
+         }
+     }
+-}
+\ No newline at end of file
++}
+diff --git a/protocols/dcp/dcp-identityhub/presentation-api/src/test/java/org/eclipse/edc/identityservice/api/v1/PresentationProtocolTest.java b/protocols/dcp/dcp-identityhub/presentation-api/src/test/java/org/eclipse/edc/identityservice/api/v1/PresentationProtocolTest.java
+new file mode 100644
+index 00000000..99aca3dc
+--- /dev/null
++++ b/protocols/dcp/dcp-identityhub/presentation-api/src/test/java/org/eclipse/edc/identityservice/api/v1/PresentationProtocolTest.java
+@@ -0,0 +1,168 @@
++/*
++ *  Copyright (c) 2026 Contributors to the Eclipse Foundation and VDBP
++ *
++ *  This program and the accompanying materials are made available under the
++ *  terms of the Apache License, Version 2.0 which is available at
++ *  https://www.apache.org/licenses/LICENSE-2.0
++ *
++ *  SPDX-License-Identifier: Apache-2.0
++ *
++ *  Contributors:
++ *       VDBP - initial implementation
++ *
++ */
++
++package org.eclipse.edc.identityservice.api.v1;
++
++import com.nimbusds.jwt.JWTClaimsSet;
++import jakarta.json.Json;
++import jakarta.json.JsonObject;
++import org.eclipse.edc.iam.decentralizedclaims.spi.model.PresentationQueryMessage;
++import org.eclipse.edc.iam.decentralizedclaims.spi.model.PresentationResponseMessage;
++import org.eclipse.edc.identityhub.api.PresentationApiExtension;
++import org.eclipse.edc.identityhub.api.validation.PresentationQueryValidator;
++import org.eclipse.edc.identityhub.api.verifiablecredential.PresentationApiController;
++import org.eclipse.edc.identityhub.spi.verifiablecredentials.generator.VerifiablePresentationService;
++import org.eclipse.edc.identityhub.spi.verifiablecredentials.resolution.CredentialQueryResolver;
++import org.eclipse.edc.identityhub.spi.verifiablecredentials.resolution.QueryResult;
++import org.eclipse.edc.identityhub.spi.verification.SelfIssuedTokenVerifier;
++import org.eclipse.edc.jsonld.TitaniumJsonLd;
++import org.eclipse.edc.jsonld.spi.JsonLd;
++import org.eclipse.edc.jsonld.util.JacksonJsonLd;
++import org.eclipse.edc.junit.annotations.ApiTest;
++import org.eclipse.edc.junit.extensions.DependencyInjectionExtension;
++import org.eclipse.edc.spi.result.Result;
++import org.eclipse.edc.spi.system.ServiceExtensionContext;
++import org.eclipse.edc.spi.types.TypeManager;
++import org.eclipse.edc.transform.TypeTransformerRegistryImpl;
++import org.eclipse.edc.transform.spi.TypeTransformerRegistry;
++import org.eclipse.edc.validator.spi.JsonObjectValidatorRegistry;
++import org.eclipse.edc.web.spi.WebService;
++import org.eclipse.edc.web.spi.exception.ValidationFailureException;
++import org.junit.jupiter.api.BeforeEach;
++import org.junit.jupiter.api.extension.ExtendWith;
++import org.junit.jupiter.params.ParameterizedTest;
++import org.junit.jupiter.params.provider.CsvSource;
++import org.junit.jupiter.params.provider.ValueSource;
++import org.mockito.ArgumentCaptor;
++
++import java.util.HashMap;
++import java.util.List;
++import java.util.Map;
++import java.util.stream.IntStream;
++import java.util.stream.Stream;
++
++import static org.assertj.core.api.Assertions.assertThat;
++import static org.assertj.core.api.Assertions.assertThatThrownBy;
++import static org.eclipse.edc.iam.decentralizedclaims.spi.DcpConstants.DSPACE_DCP_V_1_0_CONTEXT;
++import static org.eclipse.edc.identityhub.protocols.dcp.spi.DcpConstants.DCP_SCOPE_V_1_0;
++import static org.eclipse.edc.identityhub.verifiablecredentials.testfixtures.VerifiableCredentialTestUtil.buildSignedJwt;
++import static org.eclipse.edc.identityhub.verifiablecredentials.testfixtures.VerifiableCredentialTestUtil.generateEcKey;
++import static org.eclipse.edc.spi.constants.CoreConstants.JSON_LD;
++import static org.mockito.ArgumentMatchers.any;
++import static org.mockito.ArgumentMatchers.anyString;
++import static org.mockito.ArgumentMatchers.eq;
++import static org.mockito.Mockito.doAnswer;
++import static org.mockito.Mockito.mock;
++import static org.mockito.Mockito.verify;
++import static org.mockito.Mockito.when;
++
++@ExtendWith(DependencyInjectionExtension.class)
++@ApiTest
++class PresentationProtocolTest {
++    private static final List<String> SCOPES = List.of("org.eclipse.tractusx.vc.type:MembershipCredential:read", "org.eclipse.tractusx.vc.type:BpnCredential:read");
++    private final JsonLd jsonLd = new TitaniumJsonLd(mock());
++    private final CredentialQueryResolver resolver = mock();
++    private final WebService web = mock();
++    private final VerifiablePresentationService generator = mock();
++
++    @BeforeEach
++    void setup(ServiceExtensionContext context) throws Exception {
++        var types = mock(TypeManager.class);
++        when(types.getMapper(JSON_LD)).thenReturn(JacksonJsonLd.createObjectMapper());
++        context.registerService(TypeManager.class, types);
++        context.registerService(JsonLd.class, jsonLd);
++        context.registerService(TypeTransformerRegistry.class, new TypeTransformerRegistryImpl(context.getMonitor()));
++        context.registerService(CredentialQueryResolver.class, resolver);
++        context.registerService(WebService.class, web);
++        var validators = mock(JsonObjectValidatorRegistry.class);
++        Map<String, PresentationQueryValidator> registered = new HashMap<>();
++        doAnswer(call -> {
++            registered.put(call.getArgument(0), call.getArgument(1));
++            return null;
++        }).when(validators).register(anyString(), any());
++        when(validators.validate(anyString(), any())).thenAnswer(call -> registered.get(call.<String>getArgument(0)).validate(call.getArgument(1)));
++        context.registerService(JsonObjectValidatorRegistry.class, validators);
++        var verifier = mock(SelfIssuedTokenVerifier.class);
++        when(verifier.verify(anyString(), eq("holder"))).thenReturn(Result.success(SCOPES));
++        context.registerService(SelfIssuedTokenVerifier.class, verifier);
++        when(generator.createPresentation(eq("holder"), any(), any(), eq("did:web:verifier")))
++                .thenReturn(Result.success(PresentationResponseMessage.Builder.newinstance().presentation(List.of("signed-vp")).build()));
++        context.registerService(VerifiablePresentationService.class, generator);
++        when(resolver.query(eq("holder"), any(), eq(SCOPES))).thenAnswer(call -> {
++            assertThat(call.<PresentationQueryMessage>getArgument(1).getScopes()).containsExactlyElementsOf(SCOPES);
++            return QueryResult.success(Stream.empty());
++        });
++        jsonLd.registerCachedDocument(DSPACE_DCP_V_1_0_CONTEXT, getClass().getResource("/document/dcp.v1.0.jsonld").toURI());
++        jsonLd.registerContext(DSPACE_DCP_V_1_0_CONTEXT, DCP_SCOPE_V_1_0);
++    }
++
++    @ParameterizedTest
++    @CsvSource({"https://w3id.org/tractusx-trust/v0.8,0", "https://w3id.org/tractusx-trust/v0.8,1",
++            "https://w3id.org/tractusx-trust/v0.8,2", DSPACE_DCP_V_1_0_CONTEXT + ",1"})
++    void query_usesRegisteredProtocol(String contextUrl, int count, PresentationApiExtension extension, ServiceExtensionContext context) {
++        var controller = initialize(extension, context);
++        var presentations = IntStream.range(0, count).<Object>mapToObj(i -> "signed-vp-" + i).toList();
++        when(generator.createPresentation(eq("holder"), any(), any(), eq("did:web:verifier")))
++                .thenReturn(Result.success(PresentationResponseMessage.Builder.newinstance().presentation(presentations).build()));
++        var request = Json.createObjectBuilder().add("@context", contextUrl).add("@type", "PresentationQueryMessage")
++                .add("scope", Json.createArrayBuilder(SCOPES)).build();
++
++        var response = controller.queryPresentation("holder", request, token());
++
++        assertThat(response.getStatus()).isEqualTo(200);
++        var body = (JsonObject) response.getEntity();
++        assertThat(body.getJsonArray("presentation")).isEqualTo(Json.createArrayBuilder(presentations).build());
++        assertThat(body.getString("type")).isEqualTo("PresentationResponseMessage");
++        assertThat(body.get("@context").toString()).contains(contextUrl);
++    }
++
++    @ParameterizedTest
++    @ValueSource(strings = {"https://w3id.org/tractusx-trust/v0.8", DSPACE_DCP_V_1_0_CONTEXT})
++    void query_emptyScopeDependsOnProtocol(String contextUrl, PresentationApiExtension extension, ServiceExtensionContext context) {
++        var controller = initialize(extension, context);
++        var request = Json.createObjectBuilder().add("@context", contextUrl).add("@type", "PresentationQueryMessage")
++                .add("scope", Json.createArrayBuilder()).build();
++        when(resolver.query(eq("holder"), any(), eq(SCOPES))).thenAnswer(call -> {
++            assertThat(call.<PresentationQueryMessage>getArgument(1).getScopes()).isEmpty();
++            return QueryResult.success(Stream.empty());
++        });
++        if (contextUrl.contains("v0.8")) {
++            assertThat(controller.queryPresentation("holder", request, token()).getStatus()).isEqualTo(200);
++        } else {
++            assertThatThrownBy(() -> controller.queryPresentation("holder", request, token())).isInstanceOf(ValidationFailureException.class);
++        }
++    }
++
++    @ParameterizedTest
++    @ValueSource(strings = {"https://w3id.org/tractusx-trust/v0.8", DSPACE_DCP_V_1_0_CONTEXT})
++    void query_rejectsBothScopeAndDefinition(String contextUrl, PresentationApiExtension extension, ServiceExtensionContext context) {
++        var controller = initialize(extension, context);
++        var request = Json.createObjectBuilder().add("@context", contextUrl).add("@type", "PresentationQueryMessage")
++                .add("scope", Json.createArrayBuilder(SCOPES))
++                .add("presentationDefinition", Json.createObjectBuilder().add("id", "definition")).build();
++
++        assertThatThrownBy(() -> controller.queryPresentation("holder", request, token())).isInstanceOf(ValidationFailureException.class);
++    }
++
++    private PresentationApiController initialize(PresentationApiExtension extension, ServiceExtensionContext context) {
++        extension.initialize(context);
++        var controller = ArgumentCaptor.forClass(PresentationApiController.class);
++        verify(web).registerResource(eq("credentials"), controller.capture());
++        return controller.getValue();
++    }
++
++    private String token() {
++        return "Bearer " + buildSignedJwt(new JWTClaimsSet.Builder().issuer("did:web:verifier").build(), generateEcKey(null)).serialize();
++    }
++}
+diff --git a/protocols/dcp/dcp-identityhub/presentation-api/src/test/resources/document/dcp.v1.0.jsonld b/protocols/dcp/dcp-identityhub/presentation-api/src/test/resources/document/dcp.v1.0.jsonld
+new file mode 100644
+index 00000000..f7858e34
+--- /dev/null
++++ b/protocols/dcp/dcp-identityhub/presentation-api/src/test/resources/document/dcp.v1.0.jsonld
+@@ -0,0 +1,137 @@
++{
++  "@context": {
++    "@version": 1.1,
++    "@protected": true,
++    "dcp": "https://w3id.org/dspace-dcp/v1.0/",
++    "cred": "https://www.w3.org/2018/credentials/",
++    "xsd": "http://www.w3.org/2001/XMLSchema#",
++    "id": "@id",
++    "type": "@type",
++    "CredentialContainer": {
++      "@id": "dcp:CredentialContainer",
++      "@context": {
++        "payload": {
++          "@id": "dcp:payload",
++          "@type": "xsd:string"
++        }
++      }
++    },
++    "CredentialMessage": {
++      "@id": "dcp:CredentialMessage",
++      "@context": {
++        "credentials": {
++          "@id": "dcp:credentials",
++          "@container": "@set"
++        },
++        "requestId": {
++          "@id": "dcp:requestId",
++          "@type": "@id"
++        }
++      }
++    },
++    "CredentialObject": {
++      "@id": "dcp:CredentialObject",
++      "@context": {
++        "credentialType": {
++          "@id": "dcp:credentialType",
++          "@container": "@set"
++        },
++        "offerReason": {
++          "@id": "dcp:offerReason",
++          "@type": "xsd:string"
++        },
++        "bindingMethods": {
++          "@id": "dcp:bindingMethods",
++          "@type": "xsd:string",
++          "@container": "@set"
++        },
++        "profiles": {
++          "@id": "dcp:profiles",
++          "@type": "xsd:string",
++          "@container": "@set"
++        },
++        "issuancePolicy": {
++          "@id": "dcp:issuancePolicy",
++          "@type": "@json"
++        }
++      }
++    },
++    "CredentialOfferMessage": {
++      "@id": "dcp:CredentialOfferMessage",
++      "@context": {
++        "credentialIssuer": "cred:issuer",
++        "credentials": {
++          "@id": "dcp:credentials",
++          "@container": "@set"
++        }
++      }
++    },
++    "CredentialRequestMessage": {
++      "@id": "dcp:CredentialRequestMessage",
++      "@context": {
++        "format": "dcp:format",
++        "credentialType": {
++          "@id": "dcp:credentialType",
++          "@type": "@vocab",
++          "@container": "@set"
++        }
++      }
++    },
++    "CredentialService": "dcp:CredentialService",
++    "CredentialStatus": {
++      "@id": "dcp:CredentialStatus",
++      "@context": {
++        "requestId": {
++          "@id": "dcp:requestId",
++          "@type": "@id"
++        },
++        "status": {
++          "@id": "dcp:status",
++          "@type": "@vocab"
++        },
++        "RECEIVED": "dcp:RECEIVED",
++        "REJECTED": "dcp:REJECTED",
++        "ISSUED": "dcp:ISSUED"
++      }
++    },
++    "IssuerMetadata": {
++      "@id": "dcp:IssuerMetadata",
++      "@context": {
++        "credentialIssuer": "cred:issuer",
++        "credentialsSupported": {
++          "@id": "dcp:credentialsSupported",
++          "@container": "@set"
++        }
++      }
++    },
++    "IssuerService": "dcp:IssuerService",
++    "PresentationQueryMessage": {
++      "@id": "dcp:PresentationQueryMessage",
++      "@context": {
++        "presentationDefinition": {
++          "@id": "dcp:presentationDefinition",
++          "@type": "@json"
++        },
++        "scope": {
++          "@id": "dcp:scope",
++          "@type": "xsd:string",
++          "@container": "@set"
++        }
++      }
++    },
++    "PresentationResponseMessage": {
++      "@id": "dcp:PresentationResponseMessage",
++      "@context": {
++        "presentation": {
++          "@id": "dcp:presentation",
++          "@container": "@set",
++          "@type": "@json"
++        },
++        "presentationSubmission": {
++          "@id": "dcp:presentationSubmission",
++          "@type": "@json"
++        }
++      }
++    }
++  }
++}
+\ No newline at end of file
 diff --git a/protocols/dcp/dcp-identityhub/storage-api/src/test/java/org/eclipse/edc/identityhub/api/storage/StorageApiControllerTest.java b/protocols/dcp/dcp-identityhub/storage-api/src/test/java/org/eclipse/edc/identityhub/api/storage/StorageApiControllerTest.java
 index e9acf0b9..5b1710f5 100644
 --- a/protocols/dcp/dcp-identityhub/storage-api/src/test/java/org/eclipse/edc/identityhub/api/storage/StorageApiControllerTest.java
