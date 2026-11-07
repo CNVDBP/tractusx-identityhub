@@ -98,6 +98,9 @@ an existing request is readable with its registered Holder's fresh SI token and
 rejects a replay. Use a new token for each independent request. A successful metadata
 check alone does not prove authenticated issuance or delivery.
 
+See the [2026-11-08 issuance acceptance](wallet-acceptance.md) for observed
+profile, identifier and Location limitations of the test Issuer.
+
 ### SQL configuration and migration
 
 RC5 selects the credential-offer datasource with
