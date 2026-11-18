@@ -158,6 +158,7 @@ maven/mavencentral/org.eclipse.edc/attestation-api/1.0.0-RC5, Apache-2.0, approv
 maven/mavencentral/org.eclipse.edc/boot/1.0.0-RC5, Apache-2.0, approved, technology.edc
 maven/mavencentral/org.eclipse.edc/common-core/1.0.0-RC5, Apache-2.0, approved, technology.edc
 maven/mavencentral/org.eclipse.edc/common-lib/1.0.0-RC5, Apache-2.0, approved, technology.edc
+maven/mavencentral/org.eclipse.edc/common-lib/1.0.0-RC5-cx0149.2, Apache-2.0, approved, technology.edc
 maven/mavencentral/org.eclipse.edc/configuration-filesystem/1.0.0-RC5, Apache-2.0, approved, technology.edc
 maven/mavencentral/org.eclipse.edc/control-plane-lib/1.0.0-RC5, Apache-2.0, approved, technology.edc
 maven/mavencentral/org.eclipse.edc/control-plane-spi/1.0.0-RC5, Apache-2.0, approved, technology.edc
