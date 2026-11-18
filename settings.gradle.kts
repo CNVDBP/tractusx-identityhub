@@ -1,6 +1,7 @@
 /*
  *   Copyright (c) 2025 Cofinity-X
  *   Copyright (c) 2025 Contributors to the Eclipse Foundation
+ *   Copyright (c) 2026 VDBP
  *
  *   See the NOTICE file(s) distributed with this work for additional
  *   information regarding copyright ownership.
@@ -52,6 +53,7 @@ include(":runtimes:issuerservice")
 include(":runtimes:issuerservice-memory")
 include("extensions:identityhub")
 include("extensions:identityhub:initial-participant")
+include("extensions:identityhub:cx-did-document")
 include("extensions:identityhub:participant-api-ownership")
 include("extensions:identityhub:credential-api-ownership")
 include("extensions:api:swagger-ui")

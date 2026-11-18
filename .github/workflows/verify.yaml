@@ -34,6 +34,15 @@ jobs:
       - name: Run Checkstyle
         run: |
           ./gradlew checkstyleMain checkstyleTest
+      - name: Check the upstream token patch
+        working-directory: .gradle/identityhub-token-patch-source
+        run: |
+          ./gradlew :core:lib:common-lib:checkstyleMain :core:lib:common-lib:checkstyleTest \
+            :core:common-core:checkstyleMain :core:identity-hub-core:checkstyleMain :core:identity-hub-core:checkstyleTest \
+            :protocols:dcp:dcp-issuer:dcp-issuer-core:checkstyleMain :protocols:dcp:dcp-issuer:dcp-issuer-core:checkstyleTest \
+            :protocols:dcp:dcp-identityhub:dcp-identityhub-core:checkstyleMain :protocols:dcp:dcp-identityhub:dcp-identityhub-core:checkstyleTest \
+            :protocols:dcp:dcp-identityhub:storage-api:checkstyleTest \
+            :protocols:dcp:dcp-identityhub:presentation-api:checkstyleMain :protocols:dcp:dcp-identityhub:presentation-api:checkstyleTest
 
   OpenAPI-Specs-Up-To-Date:
     runs-on: ubuntu-latest
@@ -68,21 +77,36 @@ jobs:
       - uses: ./.github/actions/setup-java
       - name: 'Unit and system tests'
         run: ./gradlew test
+      - name: Test the upstream token patch
+        working-directory: .gradle/identityhub-token-patch-source
+        run: |
+          ./gradlew :core:lib:common-lib:test :core:common-core:test :core:identity-hub-core:test \
+            :protocols:dcp:dcp-issuer:dcp-issuer-core:test :protocols:dcp:dcp-identityhub:dcp-identityhub-core:test \
+            :protocols:dcp:dcp-identityhub:presentation-api:test
 
   Integration-Tests:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: eclipse-edc/.github/.github/actions/setup-build@ad570058e7406cf18f1b7b8b5fc8e6a5c354af72 # main
+      - uses: ./.github/actions/setup-token-patch
 
       - name: Component Tests
         run: ./gradlew compileJava compileTestJava test -DincludeTags="ComponentTest,ApiTest,EndToEndTest"
+      - name: Verify token signatures and Storage authentication
+        working-directory: .gradle/identityhub-token-patch-source
+        run: |
+          ./gradlew :core:identity-hub-core:test --tests '*SelfIssuedTokenVerifierImplComponentTest' \
+            :protocols:dcp:dcp-identityhub:storage-api:test --tests '*StorageApiControllerTest' \
+            :protocols:dcp:dcp-identityhub:presentation-api:test \
+            -DincludeTags="ComponentTest,ApiTest"
 
   Postgresql-Integration-Tests:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: eclipse-edc/.github/.github/actions/setup-build@ad570058e7406cf18f1b7b8b5fc8e6a5c354af72 # main
+      - uses: ./.github/actions/setup-token-patch
 
       - name: Postgresql Tests
         run: ./gradlew compileJava compileTestJava test -DincludeTags="PostgresqlIntegrationTest"

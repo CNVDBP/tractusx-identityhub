@@ -99,7 +99,7 @@ helm install issuerservice tractusx-dev/tractusx-issuerservice
 | issuerservice.ingresses[1].tls.enabled | bool | `false` | Enables TLS on the ingress resource |
 | issuerservice.ingresses[1].tls.secretName | string | `""` | If present overwrites the default secret name |
 | issuerservice.initContainers | list | `[]` |  |
-| issuerservice.jtivalidation | bool | `false` | Whether Self-Issued ID tokens are protected with JTI claims (=nonce) |
+| issuerservice.jtivalidation | bool | `true` | Whether Self-Issued ID tokens are protected with JTI claims (=nonce) |
 | issuerservice.livenessProbe.enabled | bool | `true` | Whether to enable kubernetes [liveness-probe](https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/) |
 | issuerservice.livenessProbe.failureThreshold | int | `6` | when a probe fails kubernetes will try 6 times before giving up |
 | issuerservice.livenessProbe.initialDelaySeconds | int | `5` | seconds to wait before performing the first liveness check |

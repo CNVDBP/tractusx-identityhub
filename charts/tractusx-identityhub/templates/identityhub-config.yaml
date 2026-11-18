@@ -70,6 +70,7 @@ data:
   edc.tractusx.ih.participant.configurable.api.key: {{ .Values.identityhub.iatp.sts.oauth.client.x_api_key | quote }}
 
   edc.iam.did.web.use.https: {{ .Values.identityhub.didweb.https | quote }}
+  edc.iam.accesstoken.jti.validation: "true"
 
   # EDC 0.16.0: must be a valid MIME type ('*' alone is rejected by
   # StatusListCredentialController). Wildcard '*/*' preserves prior behaviour.

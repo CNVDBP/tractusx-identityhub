@@ -1,6 +1,7 @@
 /*
  *   Copyright (c) 2025 LKS Next
  *   Copyright (c) 2025 Contributors to the Eclipse Foundation
+ *   Copyright (c) 2026 VDBP
  *   Copyright (c) 2026 Technovative Solutions
  *
  *   See the NOTICE file(s) distributed with this work for additional
@@ -213,7 +214,7 @@ public class InitialParticipantExtension implements ServiceExtension {
 
     private DidDocument getDidDocument() {
         String type = "CredentialService";
-        String id = "%s#credential-service".formatted(participantId.replace("did:web:", ""));
+        String id = "%s#credential-service".formatted(participantId);
         String endpoint = getServiceEndpoint();
         return DidDocument.Builder.newInstance()
                 .id(participantId)

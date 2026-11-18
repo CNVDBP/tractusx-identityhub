@@ -2,6 +2,7 @@
  *   Copyright (c) 2025 LKS Next
  *   Copyright (c) 2026 Technovative Solutions
  *   Copyright (c) 2025 Contributors to the Eclipse Foundation
+ *   Copyright (c) 2026 VDBP
  *
  *   See the NOTICE file(s) distributed with this work for additional
  *   information regarding copyright ownership.
@@ -123,8 +124,12 @@ public class InitialParticipantExtensionTest {
         verify(vault).storeSecret(eq(participantDid), eq(participantDid + "-apikey"), eq(participantApiKey));
         var document = ArgumentCaptor.forClass(DidDocument.class);
         verify(didDocumentService).store(document.capture(), eq(participantDid));
-        assertThat(document.getValue().getService()).singleElement()
-                .satisfies(service -> assertThat(service.getServiceEndpoint()).isEqualTo(expectedEndpoint));
+        assertThat(document.getValue().getId()).isEqualTo(participantDid);
+        assertThat(document.getValue().getService()).singleElement().satisfies(service -> {
+            assertThat(service.getId()).isEqualTo(participantDid + "#credential-service");
+            assertThat(service.getType()).isEqualTo("CredentialService");
+            assertThat(service.getServiceEndpoint()).isEqualTo(expectedEndpoint);
+        });
         verify(keyPairService).addKeyPair(eq(participantDid), any(), eq(true));
         verify(stsAccountStore).create(any());
         verify(participantContextConfigService).save(any());
